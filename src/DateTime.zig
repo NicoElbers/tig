@@ -29,6 +29,8 @@
 /// source: https://en.m.wikipedia.org/wiki/Year_zero
 timestamp: i64,
 
+// FIXME: Negative years are broken asf. pls fix
+
 pub const gregorianEpoch: DateTime = .{ .timestamp = 0 };
 pub const unixEpoch: DateTime = .{ .timestamp = 62_167_219_200 };
 
@@ -46,11 +48,16 @@ pub const Year = enum(i40) {
     /// Additionally verified
     pub const avg_s_per_y = 31_556_952;
 
-    const min = (DateTime{ .timestamp = minInt(i64) }).getYear();
-    const max = (DateTime{ .timestamp = maxInt(i64) }).getYear();
+    const min = Year.fromUnchecked(-292277024627);
+    const max = Year.fromUnchecked(292277024626);
 
     pub const Error = error{UnrepresetableYear};
+    test "min/max" {
+        const expectEqual = std.testing.expectEqual;
 
+        try expectEqual((DateTime{ .timestamp = minInt(i64) }).getYear(), min);
+        try expectEqual((DateTime{ .timestamp = maxInt(i64) }).getYear(), max);
+    }
     /// Convert any integer type to a type safe year.
     ///
     /// This function assumes that the year you provide is valid, and representable

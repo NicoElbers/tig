@@ -69,13 +69,11 @@ pub const Year = enum(i40) {
     ///
     /// This function assumes that the year you provide is valid, and representable
     /// by the `DateTime` timestamp
-    pub fn from(year: anytype) Year {
-        const year_cast: i40 = @intCast(year);
+    pub fn from(year: i40) Year {
+        assert(year >= min.to());
+        assert(year <= max.to());
 
-        assert(year_cast >= min.to());
-        assert(year_cast <= max.to());
-
-        return fromUnchecked(year_cast);
+        return fromUnchecked(year);
     }
 
     /// Convert any integer type to a type safe year.
@@ -83,14 +81,11 @@ pub const Year = enum(i40) {
     /// If the year cannot be represented by the `DateTime` timestamp, this
     /// function returns `UnrepresetableYear`. This only happes for years more
     /// than ~292 billion years removed from year 0.
-    pub fn fromChecked(year: anytype) Error!Year {
-        const year_cast: i40 = cast(i40, year) orelse
-            return Error.UnrepresentableYear;
+    pub fn fromChecked(year: i40) Error!Year {
+        if (year < min.to()) return Error.UnrepresentableYear;
+        if (year > max.to()) return Error.UnrepresentableYear;
 
-        if (year_cast < min.to()) return Error.UnrepresentableYear;
-        if (year_cast > max.to()) return Error.UnrepresentableYear;
-
-        return fromUnchecked(year_cast);
+        return fromUnchecked(year);
     }
 
     fn fromUnchecked(year: i40) Year {
@@ -101,12 +96,12 @@ pub const Year = enum(i40) {
         const expectEqual = std.testing.expectEqual;
 
         try expectEqual(123, Year.from(123).to());
-        try expectEqual(-123, Year.from(@as(i32, -123)).to());
-        try expectEqual(1000, Year.from(@as(u128, 1000)).to());
-        try expectEqual(0, Year.from(@as(u0, 0)).to());
+        try expectEqual(-123, Year.from(-123).to());
+        try expectEqual(1000, Year.from(1000).to());
+        try expectEqual(0, Year.from(0).to());
 
-        try expectEqual(min, Year.from(@as(i180, min.to())));
-        try expectEqual(max, Year.from(@as(i180, max.to())));
+        try expectEqual(min, Year.from(min.to()));
+        try expectEqual(max, Year.from(max.to()));
     }
 
     test fromChecked {
@@ -114,12 +109,12 @@ pub const Year = enum(i40) {
         const expectEqual = std.testing.expectEqual;
 
         try expectEqual(123, Year.from(123).to());
-        try expectEqual(-123, Year.from(@as(i32, -123)).to());
-        try expectEqual(1000, Year.from(@as(u128, 1000)).to());
-        try expectEqual(0, Year.from(@as(u0, 0)).to());
+        try expectEqual(-123, Year.from(-123).to());
+        try expectEqual(1000, Year.from(1000).to());
+        try expectEqual(0, Year.from(0).to());
 
-        try expectEqual(min, Year.from(@as(i180, min.to())));
-        try expectEqual(max, Year.from(@as(i180, max.to())));
+        try expectEqual(min, Year.from(min.to()));
+        try expectEqual(max, Year.from(max.to()));
 
         try expectError(Error.UnrepresentableYear, Year.fromChecked(max.to() + 1));
         try expectError(Error.UnrepresentableYear, Year.fromChecked(min.to() - 1));
@@ -190,8 +185,8 @@ pub const Year = enum(i40) {
 
         // Leap years are symetric around year 0
         for (0..10_000) |i| {
-            const year_pos = Year.from(i);
-            const year_neg = Year.from(i);
+            const year_pos = Year.from(@intCast(i));
+            const year_neg = Year.from(@intCast(i));
 
             try expectEqual(year_pos.isLeapYear(), year_neg.isLeapYear());
         }
@@ -249,8 +244,8 @@ pub const Year = enum(i40) {
 
         var found_leap_years: i32 = 0;
         for (0..10_000) |i| {
-            const year_pos: Year = Year.from(i);
-            const year_neg: Year = Year.from(i);
+            const year_pos: Year = Year.from(@intCast(i));
+            const year_neg: Year = Year.from(@intCast(i));
 
             try expectEqual(year_pos.isLeapYear(), year_neg.isLeapYear());
 
@@ -341,18 +336,18 @@ pub const Year = enum(i40) {
 
         // Since day -365 corresponds to the start of year -1, we subtract 364
         // to properly align ourselves (-1 - 364 == -365)
-        days_left -= 364 * @as(i40, @intFromBool(days_left < 0));
+        days_left -= 364 * @as(i48, @intFromBool(days_left < 0));
 
-        const cycle_400 = @divTrunc(days_left, d_in_cycle_400);
+        const cycle_400: i40 = @intCast(@divTrunc(days_left, d_in_cycle_400));
         days_left = @rem(days_left, d_in_cycle_400);
 
-        const cycle_100 = @divTrunc(days_left, d_in_cycle_100);
+        const cycle_100: i40 = @intCast(@divTrunc(days_left, d_in_cycle_100));
         days_left = @rem(days_left, d_in_cycle_100);
 
-        const cycle_4 = @divTrunc(days_left, d_in_cycle_4);
+        const cycle_4: i40 = @intCast(@divTrunc(days_left, d_in_cycle_4));
         days_left = @rem(days_left, d_in_cycle_4);
 
-        const cycle_1 = @divTrunc(days_left, d_in_cycle_1);
+        const cycle_1: i40 = @intCast(@divTrunc(days_left, d_in_cycle_1));
 
         return Year.from(cycle_400 * 400 +
             cycle_100 * 100 +
@@ -386,7 +381,7 @@ pub const Year = enum(i40) {
         try expectEqual(Year.from(-4), fromCalendarDay(Day.from(-1_461)));
 
         const tst = struct {
-            pub fn tst(ordinal_day: i64, year: i40) !void {
+            pub fn tst(ordinal_day: i48, year: i40) !void {
                 const year_pos = Year.from(year);
                 const year_pos_start = Day.from(ordinal_day);
                 const year_pos_end = Day.from(ordinal_day + year_pos.getDaysInYear() - 1);
@@ -395,8 +390,9 @@ pub const Year = enum(i40) {
                 try expectEqual(year_pos, fromCalendarDay(year_pos_end));
 
                 const year_neg = Year.from(-year);
-                // FIXME: explain the 1??
+                // This is +1 to offset the fact that year 0 is a leap year
                 const year_neg_start = Day.from(-ordinal_day + 1);
+                // This is -1 as day -1 corresponds to the end of year -1, not day 0
                 const year_neg_end = Day.from(-ordinal_day + year_neg.getDaysInYear() - 1);
 
                 try expectEqual(year_neg, fromCalendarDay(year_neg_start));
@@ -557,23 +553,18 @@ pub const MonthOfYear = enum(u4) {
 
     pub const Error = error{ UnrepresentableDay, UnrepresentableMonth };
 
-    pub fn from(month: anytype) MonthOfYear {
-        const month_cast: u4 = @intCast(month);
+    pub fn from(month: u4) MonthOfYear {
+        assert(month >= 1);
+        assert(month <= 12);
 
-        assert(month_cast >= 1);
-        assert(month_cast <= 12);
-
-        return fromUnchecked(month_cast);
+        return fromUnchecked(month);
     }
 
-    pub fn fromChecked(month: anytype) Error!MonthOfYear {
-        const month_cast = std.math.cast(u4, month) catch
-            return Error.UnrepresentableDay;
-
-        if (month_cast < 0 or month_cast > 11)
+    pub fn fromChecked(month: u4) Error!MonthOfYear {
+        if (month < 0 or month > 11)
             return Error.UnrepresentableMonth;
 
-        return fromUnchecked(month_cast);
+        return fromUnchecked(month);
     }
 
     fn fromUnchecked(month: u4) MonthOfYear {
@@ -584,11 +575,11 @@ pub const MonthOfYear = enum(u4) {
         return @intFromEnum(month);
     }
 
-    pub fn from0(month: anytype) MonthOfYear {
+    pub fn from0(month: u4) MonthOfYear {
         return from(month + 1);
     }
 
-    pub fn from0Checked(month: anytype) MonthOfYear {
+    pub fn from0Checked(month: u4) MonthOfYear {
         return fromChecked(month + 1);
     }
 
@@ -749,7 +740,7 @@ pub const MonthOfYear = enum(u4) {
 
         assert(ordinal_days_before_month <= ordinal_day_of_year);
 
-        return DayOfMonth.fromOrdinal(ordinal_day_of_year - ordinal_days_before_month, month, is_leap_year);
+        return DayOfMonth.fromOrdinal(@intCast(ordinal_day_of_year - ordinal_days_before_month), month, is_leap_year);
     }
 
     pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -786,13 +777,11 @@ pub const Week = enum(i45) {
         try expectEqual(date_max.getWeek(), max);
     }
 
-    pub fn from(week: anytype) Week {
-        const week_cast: i45 = @intCast(week);
+    pub fn from(week: i45) Week {
+        assert(week >= min.to());
+        assert(week <= max.to());
 
-        assert(week_cast >= min.to());
-        assert(week_cast <= max.to());
-
-        return fromUnchecked(week_cast);
+        return fromUnchecked(week);
     }
 
     fn fromUnchecked(week: i45) Week {
@@ -838,22 +827,17 @@ pub const WeekOfYear = enum(u6) {
 
     pub const Error = error{UnrepresentableWeek};
 
-    pub fn from0(week: anytype, year: Year) WeekOfYear {
-        const week_cast: u6 = @intCast(week);
-
+    pub fn from0(week: u6, year: Year) WeekOfYear {
         assert(week < year.weeksInYear());
 
-        return from0Unchecked(week_cast);
+        return from0Unchecked(week);
     }
 
-    pub fn from0Checked(week: anytype, year: Year) Error!WeekOfYear {
-        const week_cast: u6 = cast(u6, week) catch
-            return Error.UnrepresentableWeek;
-
+    pub fn from0Checked(week: u6, year: Year) Error!WeekOfYear {
         if (week >= year.weeksInYear())
             return Error.UnrepresentableWeek;
 
-        return from0Unchecked(week_cast);
+        return from0Unchecked(week);
     }
 
     fn from0Unchecked(week: u6) WeekOfYear {
@@ -918,23 +902,18 @@ pub const Day = enum(i48) {
 
     pub const Error = error{UnrepresentableDay};
 
-    pub fn from(day: anytype) Day {
-        const day_cast: i48 = @intCast(day);
+    pub fn from(day: i48) Day {
+        assert(day <= max.to());
+        assert(day >= min.to());
 
-        assert(day_cast <= max.to());
-        assert(day_cast >= min.to());
-
-        return @enumFromInt(day_cast);
+        return @enumFromInt(day);
     }
 
     pub fn fromChecked(day: i64) Error!Day {
-        const day_cast = cast(i48, day) orelse
+        if (day > max.to() or day < min.to())
             return Error.UnrepresentableDay;
 
-        if (day_cast > max.to() or day_cast < min.to())
-            return Error.UnrepresentableDay;
-
-        return fromUnchecked(day_cast);
+        return fromUnchecked(day);
     }
 
     pub fn fromUnchecked(oridnal_day: i48) Day {
@@ -964,52 +943,45 @@ pub const DayOfYear = enum(u9) {
 
     pub const Error = error{UnrepresentableDay};
 
-    pub fn from(day: anytype, is_leap_year: bool) DayOfYear {
-        const day_cast: u9 = @intCast(day);
+    pub fn from(day: u9, is_leap_year: bool) DayOfYear {
+        assert(day >= 1);
+        assert(day <= 365 + @as(u9, @intFromBool(is_leap_year)));
 
-        assert(day_cast >= 1);
-        assert(day_cast <= 365 + @as(u9, @intFromBool(is_leap_year)));
-
-        return @enumFromInt(day_cast);
+        return @enumFromInt(day);
     }
 
     // TODO: investigave whether I should be using divfloor
-    pub fn fromOrdinalSecond(ordinal_second: anytype, is_leap_year: bool) DayOfYear {
-        return fromOrdinalDay(@divTrunc(ordinal_second, s_per_day), is_leap_year);
+    pub fn fromOrdinalSecond(ordinal_second: i64, is_leap_year: bool) DayOfYear {
+        return fromOrdinalDay(@intCast(@divTrunc(ordinal_second, s_per_day)), is_leap_year);
     }
 
     pub fn fromCalendarDay(calendar_day: Day, is_leap_year: bool) DayOfYear {
         return fromOrdinalDay(calendar_day.to(), is_leap_year);
     }
 
-    pub fn fromOrdinalDay(ordinal_day: anytype, is_leap_year: bool) DayOfYear {
-        const ordinal_day_cast: u9 = @intCast(ordinal_day);
-
+    pub fn fromOrdinalDay(ordinal_day: u9, is_leap_year: bool) DayOfYear {
         const min_ordinal_day: u8 = 0;
         const max_ordinal_day: u9 = 364 + @as(u9, @intFromBool(is_leap_year));
 
-        assert(ordinal_day_cast <= max_ordinal_day);
-        assert(ordinal_day_cast >= min_ordinal_day);
+        assert(ordinal_day <= max_ordinal_day);
+        assert(ordinal_day >= min_ordinal_day);
 
-        return @enumFromInt(ordinal_day_cast + 1);
+        return @enumFromInt(ordinal_day + 1);
     }
 
     // TODO: investigate if I should be using divfloor
-    pub fn fromSecondChecked(ordinal_second: anytype, is_leap_year: bool) Error!DayOfYear {
-        return fromOrdinalDayChecked(@divTrunc(ordinal_second, s_per_day), is_leap_year);
+    pub fn fromSecondChecked(ordinal_second: i64, is_leap_year: bool) Error!DayOfYear {
+        return fromOrdinalDayChecked(@intCast(@divTrunc(ordinal_second, s_per_day)), is_leap_year);
     }
 
-    pub fn fromOrdinalDayChecked(ordinal_day: anytype, is_leap_year: bool) Error!DayOfYear {
-        const ordinal_day_cast: u9 = cast(u9, ordinal_day + 1) orelse
-            return Error.UnrepresentableDay;
-
+    pub fn fromOrdinalDayChecked(ordinal_day: u9, is_leap_year: bool) Error!DayOfYear {
         const min_ordinal_day: u9 = 1;
         const max_ordinal_day: u9 = 355 + @as(u9, @intCast(@intFromBool(is_leap_year)));
 
-        if (ordinal_day_cast < min_ordinal_day or ordinal_day_cast > max_ordinal_day)
+        if (ordinal_day < min_ordinal_day or ordinal_day > max_ordinal_day)
             return Error.UnrepresentableDay;
 
-        return @enumFromInt(ordinal_day_cast);
+        return @enumFromInt(ordinal_day);
     }
 
     pub fn to0(day_of_year: DayOfYear) u9 {
@@ -1034,7 +1006,7 @@ pub const DayOfMonth = enum(u5) {
 
     pub const Error = error{UnrepresentableDayOfMonth};
 
-    pub fn fromOrdinal(day: anytype, month: MonthOfYear, is_leap_year: bool) DayOfMonth {
+    pub fn fromOrdinal(day: u5, month: MonthOfYear, is_leap_year: bool) DayOfMonth {
         return from(day + 1, month, is_leap_year);
     }
 
@@ -1046,22 +1018,18 @@ pub const DayOfMonth = enum(u5) {
         return @intFromEnum(day_of_month);
     }
 
-    pub fn from(day: anytype, month: MonthOfYear, is_leap_year: bool) DayOfMonth {
-        const cast_day: u5 = @intCast(day);
+    pub fn from(day: u5, month: MonthOfYear, is_leap_year: bool) DayOfMonth {
+        assert(day >= 1);
+        assert(day <= month.daysInMonth(is_leap_year));
 
-        assert(cast_day >= 1);
-        assert(cast_day <= month.daysInMonth(is_leap_year));
-
-        return @enumFromInt(cast_day);
+        return @enumFromInt(day);
     }
 
-    pub fn fromChecked(day: anytype, month: MonthOfYear, is_leap_year: bool) Error!DayOfMonth {
-        const cast_day: u5 = cast(u5, day) orelse return Error.UnrepresentableDayOfMonth;
-
-        if (cast_day == 0 or cast_day > month.daysInMonth(is_leap_year))
+    pub fn fromChecked(day: u5, month: MonthOfYear, is_leap_year: bool) Error!DayOfMonth {
+        if (day == 0 or day > month.daysInMonth(is_leap_year))
             return Error.UnrepresentableDayOfMonth;
 
-        return @enumFromInt(cast_day);
+        return @enumFromInt(day);
     }
 
     pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -1135,21 +1103,17 @@ pub const Hour = enum(u5) {
 
     pub const Error = error{UnrepresentableHour};
 
-    pub fn from(hour: anytype) Hour {
-        const hour_cast: u5 = @intCast(hour);
+    pub fn from(hour: u5) Hour {
+        assert(hour <= 24);
 
-        assert(hour_cast <= 24);
-
-        return fromUnchecked(hour_cast);
+        return fromUnchecked(hour);
     }
 
-    pub fn fromChecked(hour: anytype) Error!Hour {
-        const hour_cast: u5 = @intCast(hour);
-
-        if (hour_cast > 24)
+    pub fn fromChecked(hour: u5) Error!Hour {
+        if (hour > 24)
             return Error.UnrepresentableHour;
 
-        return fromUnchecked(hour_cast);
+        return fromUnchecked(hour);
     }
 
     fn fromUnchecked(hour: u5) Hour {
@@ -1183,20 +1147,15 @@ pub const Minute = enum(u6) {
 
     pub const Error = error{UnrepresentableMinute};
 
-    pub fn fromChecked(minute: anytype) Error!Minute {
-        const minute_cast = cast(u6, minute) orelse
+    pub fn fromChecked(minute: u6) Error!Minute {
+        if (minute >= 60)
             return Error.UnrepresentableMinute;
 
-        if (minute_cast >= 60)
-            return Error.UnrepresentableMinute;
-
-        return from(minute_cast);
+        return from(minute);
     }
 
-    pub fn from(minute: anytype) Minute {
-        const minute_cast: u6 = @intCast(minute);
-
-        assert(minute_cast < 60);
+    pub fn from(minute: u6) Minute {
+        assert(minute < 60);
 
         return @enumFromInt(minute);
     }
@@ -1228,18 +1187,15 @@ pub const Second = enum(u6) {
 
     pub const Error = error{UnrepresentableSecond};
 
-    pub fn fromChecked(second: anytype) Error!Second {
-        const second_cast = cast(u6, second) orelse
-            return Error.UnrepresentableSecond;
-
+    pub fn fromChecked(second: u6) Error!Second {
         // TODO: Leap seconds can get to 60, do we handle that here?
-        if (second_cast >= 60)
+        if (second >= 60)
             return Error.UnrepresentableSecond;
 
-        return from(second_cast);
+        return from(second);
     }
 
-    pub fn from(second: anytype) Second {
+    pub fn from(second: u6) Second {
         return @enumFromInt(second);
     }
 
@@ -1267,14 +1223,14 @@ pub const Second = enum(u6) {
 
 pub fn getCalendarDay(date: DateTime) Day {
     assert(date.isValid());
-    return Day.from(@divFloor(date.timestamp, s_per_day));
+    return Day.from(@intCast(@divFloor(date.timestamp, s_per_day)));
 }
 
 test getCalendarDay {
     const expectEqual = std.testing.expectEqual;
 
     const tst = struct {
-        pub fn tst(expected: anytype, b: BuildOptions) !void {
+        pub fn tst(expected: i48, b: DateOptions) !void {
             const built = build(b);
             const expected_day = Day.from(expected);
 
@@ -1305,7 +1261,7 @@ test getCalendarDay {
     }.tst;
 
     const tstraw = struct {
-        pub fn tstraw(expected: anytype, dt: DateTime) !void {
+        pub fn tstraw(expected: i48, dt: DateTime) !void {
             const expected_day = Day.from(expected);
 
             try expectEqual(expected_day, dt.getCalendarDay());
@@ -1328,7 +1284,7 @@ test getYear {
     const expectEqual = std.testing.expectEqual;
 
     const tst = struct {
-        pub fn tst(b: BuildOptions) !void {
+        pub fn tst(b: DateOptions) !void {
             const built = build(b);
             const year = Year.from(b.year);
 
@@ -1359,7 +1315,7 @@ test getYear {
     }.tst;
 
     const tstraw = struct {
-        pub fn tstraw(expected: anytype, dt: DateTime) !void {
+        pub fn tstraw(expected: i40, dt: DateTime) !void {
             const year = Year.from(expected);
 
             try expectEqual(year, dt.getYear());
@@ -1402,7 +1358,7 @@ test getDayOfYear {
     const expectEqual = std.testing.expectEqual;
 
     const tst = struct {
-        pub fn tst(b: BuildOptions) !void {
+        pub fn tst(b: DateOptions) !void {
             const built = build(b);
             const year = Year.from(b.year);
             const is_leap = year.isLeapYear();
@@ -1467,7 +1423,7 @@ test getMonth {
     const expectEqual = std.testing.expectEqual;
 
     const tst = struct {
-        pub fn tst(month: MonthOfYear, b: BuildOptions) !void {
+        pub fn tst(month: MonthOfYear, b: DateOptions) !void {
             const date = build(b);
             const date_start = build(.{
                 .year = b.year,
@@ -1509,43 +1465,42 @@ pub fn getDayOfMonth(date: DateTime) DayOfMonth {
 // TODO: investigate if I should be using divfloor over divtrunc
 pub fn getWeek(date: DateTime) Week {
     assert(date.isValid());
-    return Week.from(@divTrunc(date.timestamp, s_per_week));
+    return Week.from(@intCast(@divTrunc(date.timestamp, s_per_week)));
 }
 
 // TODO: investigate if I should be using divfloor over divtrunc
 pub fn getDay(date: DateTime) Day {
     assert(date.isValid());
-    return Day.from(@divTrunc(date.timestamp, s_per_day));
+    return Day.from(@intCast(@divTrunc(date.timestamp, s_per_day)));
 }
 
 // TODO: investigate if I should be using divfloor over divtrunc
 pub fn getHour(date: DateTime) Hour {
     assert(date.isValid());
-    return Hour.from(@divTrunc(@mod(date.timestamp, s_per_day), s_per_hour));
+    return Hour.from(@intCast(@divTrunc(@mod(date.timestamp, s_per_day), s_per_hour)));
 }
 
 // TODO: investigate if I should be using divfloor over divtrunc
 pub fn getMinute(date: DateTime) Minute {
     assert(date.isValid());
-    return Minute.from(@divTrunc(@mod(date.timestamp, s_per_hour), s_per_min));
+    return Minute.from(@intCast(@divTrunc(@mod(date.timestamp, s_per_hour), s_per_min)));
 }
 
 pub fn getSecond(date: DateTime) Second {
     assert(date.isValid());
-    return Second.from(@mod(date.timestamp, s_per_min));
+    return Second.from(@intCast(@mod(date.timestamp, s_per_min)));
 }
 
-// FIXME: better name pls
-pub const BuildOptions = struct {
+pub const DateOptions = struct {
     year: i40,
     month: MonthOfYear = .January,
     day_of_month: u5 = 1,
-    hour: u6 = 0,
+    hour: u5 = 0,
     minute: u6 = 0,
     second: u6 = 0,
 };
 
-pub const BuildOptionsTyped = struct {
+pub const DateOptionsTyped = struct {
     year: Year,
     month: MonthOfYear,
     day_of_month: DayOfMonth,
@@ -1554,7 +1509,7 @@ pub const BuildOptionsTyped = struct {
     second: Second,
 };
 
-pub fn buildTyped(b: BuildOptionsTyped) DateTime {
+pub fn buildTyped(b: DateOptionsTyped) DateTime {
     return DateTime.gregorianEpoch
         .setYear(b.year)
         .addDays(b.month.ordinalNumberOfFirstOfMonth(b.year.isLeapYear()))
@@ -1577,7 +1532,7 @@ test buildTyped {
     }));
 }
 
-pub fn build(b: BuildOptions) DateTime {
+pub fn build(b: DateOptions) DateTime {
     const year = Year.from(b.year);
     const day_of_month_cast = DayOfMonth.from(b.day_of_month, b.month, year.isLeapYear());
 
@@ -1591,7 +1546,7 @@ pub fn build(b: BuildOptions) DateTime {
     });
 }
 
-pub fn buildChecked(b: BuildOptions) !DateTime {
+pub fn buildChecked(b: DateOptions) !DateTime {
     const year = try Year.fromChecked(b.year);
     const day_of_month_cast = try DayOfMonth.fromChecked(b.day_of_month, b.month, year.isLeapYear());
 
@@ -1675,8 +1630,8 @@ test setYear {
     }.tst;
 
     for (0..500) |year| {
-        try tst(Year.from(year));
-        try tst(Year.from(-@as(i65, year)));
+        try tst(Year.from(@intCast(year)));
+        try tst(Year.from(-@as(i40, @intCast(year))));
     }
 }
 
@@ -1706,19 +1661,19 @@ test addYears {
 
             try expectEqual(DayOfYear.fromOrdinalDay(0, false), date.getDayOfYear());
             try expectEqual(MonthOfYear.January, date.getMonth());
-            try expectEqual(Year.from(expected_year), date.getYear());
+            try expectEqual(Year.from(@intCast(expected_year)), date.getYear());
 
             date = date.addYears(@intCast(year_step));
         }
     }
 }
 
-pub fn addMonthsChecked(date: DateTime, months: i64) !DateTime {
+pub fn addMonthsChecked(date: DateTime, months: i40) !DateTime {
     const day_of_month = date.getDayOfMonth();
 
     // TODO: investigate if I should be using divfloor over divtrunc
     const years_to_add = try Year.fromChecked(@divTrunc(months, 12));
-    const months_to_add = @rem(months, 12);
+    const months_to_add: i40 = @rem(months, 12);
     const month_ordial = date.getMonth().to0();
 
     const new_month_ordinal: u4 = @intCast(@mod(month_ordial + months_to_add, 12));
@@ -1740,7 +1695,7 @@ pub fn addMonths(date: DateTime, months: i64) DateTime {
     const day_of_month = date.getDayOfMonth();
 
     // We want divTrunc, as -1 month does not mean go back 1 year
-    const years_to_add = Year.from(@divTrunc(months, 12));
+    const years_to_add = Year.from(@intCast(@divTrunc(months, 12)));
     const months_to_add = @rem(months, 12);
     const month_ordial = date.getMonth().to0();
 
@@ -1748,7 +1703,7 @@ pub fn addMonths(date: DateTime, months: i64) DateTime {
 
     // We want divFloor because -1 month means we overflowed 1 month into the
     // previous year
-    const years_overflowed = Year.from(@divFloor(month_ordial + months_to_add, 12));
+    const years_overflowed = Year.from(@intCast(@divFloor(month_ordial + months_to_add, 12)));
 
     const new_month = MonthOfYear.from0(new_month_ordinal);
     const new_year = Year.from(date.getYear().to() +
@@ -1765,7 +1720,7 @@ test addMonths {
     const expectEqual = std.testing.expectEqual;
 
     const tst = struct {
-        pub fn tst(add: i64, s: BuildOptions, e: BuildOptions) !void {
+        pub fn tst(add: i64, s: DateOptions, e: DateOptions) !void {
             const start = build(s);
             const end = build(e);
 
@@ -2160,4 +2115,6 @@ fn fuzzGetters(input: []const u8) !void {
     _ = date.getHour();
     _ = date.getMinute();
     _ = date.getSecond();
+
+    try std.fmt.format(std.io.null_writer, "{}", .{date});
 }

@@ -208,13 +208,15 @@ pub const Year = enum(i40) {
 
         var year_int: i40 = year.to();
 
-        // TODO: investigate if I should be using divfloor over divtrunc
+        // We want to use divTrunc because year_int -1 is 0 cycles
         const cycle_400 = @divTrunc(year_int, 400);
         year_int = @rem(year_int, 400);
 
+        // We want to use divTrunc because year_int -1 is 0 cycles
         const cycle_100 = @divTrunc(year_int, 100);
         year_int = @rem(year_int, 100);
 
+        // We want to use divTrunc because year_int -1 is 0 cycles
         const cycle_4 = @divTrunc(year_int, 4);
 
         return cycle_400 * leap_400 +
@@ -1363,9 +1365,9 @@ test getDayOfYear {
             const year = Year.from(b.year);
             const is_leap = year.isLeapYear();
             const expected_day = b.month.ordinalNumberOfFirstOfMonth(is_leap) +
-                b.day_of_month - 1; // -1 to ordinal
+                b.day_of_month;
 
-            try expectEqual(DayOfYear.fromOrdinalDay(expected_day, is_leap), built.getDayOfYear());
+            try expectEqual(DayOfYear.from(expected_day, is_leap), built.getDayOfYear());
         }
     }.tst;
 
@@ -1462,28 +1464,88 @@ pub fn getDayOfMonth(date: DateTime) DayOfMonth {
     return month.calendarDayOfMonth(year.isLeapYear(), day_of_year);
 }
 
-// TODO: investigate if I should be using divfloor over divtrunc
+test getDayOfMonth {
+    const expectEqual = std.testing.expectEqual;
+
+    var date_pos = gregorianEpoch;
+    for (1..@as(u6, MonthOfYear.January.daysInMonth(true)) + 1) |i| {
+        try expectEqual(DayOfMonth.from(@intCast(i), .January, true), date_pos.getDayOfMonth());
+        date_pos = date_pos.addDays(1);
+    }
+    try expectEqual(DayOfMonth.from(1, .January, true), date_pos.getDayOfMonth());
+
+    var date_neg = gregorianEpoch;
+    date_neg = date_neg.addSeconds(-1);
+    for (0..31) |i| {
+        const day = 31 - i;
+        try expectEqual(DayOfMonth.from(@intCast(day), .December, true), date_neg.getDayOfMonth());
+        date_neg = date_neg.addDays(-1);
+    }
+    try expectEqual(DayOfMonth.from(30, .November, true), date_neg.getDayOfMonth());
+}
+
 pub fn getWeek(date: DateTime) Week {
     assert(date.isValid());
-    return Week.from(@intCast(@divTrunc(date.timestamp, s_per_week)));
+    // divFloor verified through test cases
+    return Week.from(@intCast(@divFloor(date.timestamp, s_per_week)));
 }
 
-// TODO: investigate if I should be using divfloor over divtrunc
+test getWeek {
+    const expectEqual = std.testing.expectEqual;
+
+    try expectEqual(Week.from(0), gregorianEpoch.addSeconds(0).getWeek());
+    try expectEqual(Week.from(1), gregorianEpoch.addSeconds(s_per_week).getWeek());
+    try expectEqual(Week.from(-1), gregorianEpoch.addSeconds(-1).getWeek());
+    try expectEqual(Week.from(-1), gregorianEpoch.addSeconds(-s_per_week).getWeek());
+    try expectEqual(Week.from(-2), gregorianEpoch.addSeconds(-s_per_week - 1).getWeek());
+}
+
 pub fn getDay(date: DateTime) Day {
     assert(date.isValid());
-    return Day.from(@intCast(@divTrunc(date.timestamp, s_per_day)));
+    // divFloor verified through test cases
+    return Day.from(@intCast(@divFloor(date.timestamp, s_per_day)));
 }
 
-// TODO: investigate if I should be using divfloor over divtrunc
+test getDay {
+    const expectEqual = std.testing.expectEqual;
+
+    try expectEqual(Day.from(0), gregorianEpoch.addSeconds(0).getDay());
+    try expectEqual(Day.from(1), gregorianEpoch.addSeconds(86400).getDay());
+    try expectEqual(Day.from(-1), gregorianEpoch.addSeconds(-1).getDay());
+    try expectEqual(Day.from(-1), gregorianEpoch.addSeconds(-86400).getDay());
+    try expectEqual(Day.from(-2), gregorianEpoch.addSeconds(-86401).getDay());
+}
+
 pub fn getHour(date: DateTime) Hour {
     assert(date.isValid());
+    // divTrunc verified through test cases
     return Hour.from(@intCast(@divTrunc(@mod(date.timestamp, s_per_day), s_per_hour)));
 }
 
-// TODO: investigate if I should be using divfloor over divtrunc
+test getHour {
+    const expectEqual = std.testing.expectEqual;
+
+    try expectEqual(Hour.from(0), gregorianEpoch.addSeconds(0).getHour());
+    try expectEqual(Hour.from(1), gregorianEpoch.addSeconds(3600).getHour());
+    try expectEqual(Hour.from(23), gregorianEpoch.addSeconds(-1).getHour());
+    try expectEqual(Hour.from(23), gregorianEpoch.addSeconds(-3600).getHour());
+    try expectEqual(Hour.from(22), gregorianEpoch.addSeconds(-3601).getHour());
+}
+
 pub fn getMinute(date: DateTime) Minute {
     assert(date.isValid());
+    // divTrunc verified through test cases
     return Minute.from(@intCast(@divTrunc(@mod(date.timestamp, s_per_hour), s_per_min)));
+}
+
+test getMinute {
+    const expectEqual = std.testing.expectEqual;
+
+    try expectEqual(Minute.from(0), gregorianEpoch.addSeconds(0).getMinute());
+    try expectEqual(Minute.from(1), gregorianEpoch.addSeconds(60).getMinute());
+    try expectEqual(Minute.from(59), gregorianEpoch.addSeconds(-1).getMinute());
+    try expectEqual(Minute.from(59), gregorianEpoch.addSeconds(-60).getMinute());
+    try expectEqual(Minute.from(58), gregorianEpoch.addSeconds(-61).getMinute());
 }
 
 pub fn getSecond(date: DateTime) Second {
@@ -1532,6 +1594,11 @@ test buildTyped {
     }));
 }
 
+// TODO: Figure out how I want to combine checked and non checked functions to
+// share the same code. Them all being duplicates is just asking for bugs
+
+/// Date build function meant to be used in code to create a date in a human
+/// readable way.
 pub fn build(b: DateOptions) DateTime {
     const year = Year.from(b.year);
     const day_of_month_cast = DayOfMonth.from(b.day_of_month, b.month, year.isLeapYear());
@@ -1671,7 +1738,7 @@ test addYears {
 pub fn addMonthsChecked(date: DateTime, months: i40) !DateTime {
     const day_of_month = date.getDayOfMonth();
 
-    // TODO: investigate if I should be using divfloor over divtrunc
+    // We want divTrunc, as -1 month does not mean go back 1 year
     const years_to_add = try Year.fromChecked(@divTrunc(months, 12));
     const months_to_add: i40 = @rem(months, 12);
     const month_ordial = date.getMonth().to0();

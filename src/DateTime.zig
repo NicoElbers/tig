@@ -962,24 +962,19 @@ pub const DayOfYear = enum(u9) {
         return fromUnckecked(day);
     }
 
-    fn fromUnckecked(day: u9) DayOfYear {
-        return @enumFromInt(day);
+    pub fn from0Checked(day: u9, is_leap_year: bool) Error!DayOfYear {
+        return fromChecked(day + 1, is_leap_year);
     }
 
-    // TODO: investigate if I should be using divfloor
-    pub fn fromSecondChecked(ordinal_second: i64, is_leap_year: bool) Error!DayOfYear {
-        // FIXME: ordinal_second can be negative
-        return fromOrdinalDayChecked(@intCast(@divTrunc(ordinal_second, s_per_day)), is_leap_year);
-    }
-
-    pub fn fromOrdinalDayChecked(ordinal_day: u9, is_leap_year: bool) Error!DayOfYear {
-        const min_ordinal_day: u9 = 1;
-        const max_ordinal_day: u9 = 355 + @as(u9, @intCast(@intFromBool(is_leap_year)));
-
-        if (ordinal_day < min_ordinal_day or ordinal_day > max_ordinal_day)
+    pub fn fromChecked(day: u9, is_leap_year: bool) Error!DayOfYear {
+        if (day < 1 or day > 365 + @as(u9, @intFromBool(is_leap_year)))
             return Error.UnrepresentableDay;
 
-        return @enumFromInt(ordinal_day);
+        return fromUnckecked(day);
+    }
+
+    fn fromUnckecked(day: u9) DayOfYear {
+        return @enumFromInt(day);
     }
 
     pub fn to0(day_of_year: DayOfYear) u9 {

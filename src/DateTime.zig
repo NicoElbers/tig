@@ -945,34 +945,30 @@ pub const DayOfYear = enum(u9) {
 
     pub const Error = error{UnrepresentableDay};
 
+    pub fn fromSecondInYear(seconds_in_year: u25, is_leap_year: bool) DayOfYear {
+        // We can use divTrunc, as we do not deal with negatives and second 1
+        // should map to day 0
+        return from0(@intCast(@divTrunc(seconds_in_year, s_per_day)), is_leap_year);
+    }
+
+    pub fn from0(day: u9, is_leap_year: bool) DayOfYear {
+        return from(day +| 1, is_leap_year);
+    }
+
     pub fn from(day: u9, is_leap_year: bool) DayOfYear {
         assert(day >= 1);
         assert(day <= 365 + @as(u9, @intFromBool(is_leap_year)));
 
+        return fromUnckecked(day);
+    }
+
+    fn fromUnckecked(day: u9) DayOfYear {
         return @enumFromInt(day);
-    }
-
-    // TODO: investigave whether I should be using divfloor
-    pub fn fromOrdinalSecond(ordinal_second: i64, is_leap_year: bool) DayOfYear {
-        return fromOrdinalDay(@intCast(@divTrunc(ordinal_second, s_per_day)), is_leap_year);
-    }
-
-    pub fn fromCalendarDay(calendar_day: Day, is_leap_year: bool) DayOfYear {
-        return fromOrdinalDay(calendar_day.to(), is_leap_year);
-    }
-
-    pub fn fromOrdinalDay(ordinal_day: u9, is_leap_year: bool) DayOfYear {
-        const min_ordinal_day: u8 = 0;
-        const max_ordinal_day: u9 = 364 + @as(u9, @intFromBool(is_leap_year));
-
-        assert(ordinal_day <= max_ordinal_day);
-        assert(ordinal_day >= min_ordinal_day);
-
-        return @enumFromInt(ordinal_day + 1);
     }
 
     // TODO: investigate if I should be using divfloor
     pub fn fromSecondChecked(ordinal_second: i64, is_leap_year: bool) Error!DayOfYear {
+        // FIXME: ordinal_second can be negative
         return fromOrdinalDayChecked(@intCast(@divTrunc(ordinal_second, s_per_day)), is_leap_year);
     }
 
@@ -1348,12 +1344,12 @@ pub fn getDayOfYear(date: DateTime) DayOfYear {
 
     const seconds_to_ignore = ordinal_days_to_ignore * s_per_day;
 
-    const seconds_in_year = date.timestamp - seconds_to_ignore;
+    const seconds_in_year: u25 = @intCast(date.timestamp - seconds_to_ignore);
 
-    assert(seconds_in_year <= (@as(u64, year.getDaysInYear())) * s_per_day);
+    assert(seconds_in_year <= (@as(u25, year.getDaysInYear())) * s_per_day);
     assert(seconds_in_year >= 0);
 
-    return DayOfYear.fromOrdinalSecond(seconds_in_year, year.isLeapYear());
+    return DayOfYear.fromSecondInYear(seconds_in_year, year.isLeapYear());
 }
 
 test getDayOfYear {
@@ -1688,10 +1684,10 @@ test setYear {
 
             // std.debug.print("testing year: {}\n", .{year});
 
-            try expectEqual(DayOfYear.fromOrdinalDay(0, false), gregorian.getDayOfYear());
+            try expectEqual(DayOfYear.from(1, false), gregorian.getDayOfYear());
             try expectEqual(year, gregorian.getYear());
 
-            try expectEqual(DayOfYear.fromOrdinalDay(0, false), unix.getDayOfYear());
+            try expectEqual(DayOfYear.from(1, false), unix.getDayOfYear());
             try expectEqual(year, unix.getYear());
         }
     }.tst;
@@ -1726,7 +1722,7 @@ test addYears {
         for (0..1000) |i| {
             const expected_year = year_step * i;
 
-            try expectEqual(DayOfYear.fromOrdinalDay(0, false), date.getDayOfYear());
+            try expectEqual(DayOfYear.from0(0, false), date.getDayOfYear());
             try expectEqual(MonthOfYear.January, date.getMonth());
             try expectEqual(Year.from(@intCast(expected_year)), date.getYear());
 

@@ -2020,159 +2020,22 @@ test {
     //functions(Second);
 }
 
-const Random = std.Random;
-
-test "Fuzz add years" {
-    try std.testing.fuzz(fuzzYears, .{});
+const fuzz = @import("fuzz.zig");
+test "Fuzz Years" {
+    try std.testing.fuzz(fuzz.fuzzYears, .{});
 }
-test "Fuzz set years" {
-    try std.testing.fuzz(fuzzSetYears, .{});
+test "Fuzz Set Years" {
+    try std.testing.fuzz(fuzz.fuzzSetYears, .{});
 }
-test "Fuzz get day of year" {
-    try std.testing.fuzz(fuzzGetDayOfYear, .{});
+test "Fuzz Get Day of Year" {
+    try std.testing.fuzz(fuzz.fuzzGetDayOfYear, .{});
 }
-test "Fuzz add months" {
-    try std.testing.fuzz(fuzzMonths, .{});
+test "Fuzz Months" {
+    try std.testing.fuzz(fuzz.fuzzMonths, .{});
 }
-test "Fuzz add constant times" {
-    try std.testing.fuzz(fuzzConstants, .{});
+test "Fuzz Constants" {
+    try std.testing.fuzz(fuzz.fuzzConstants, .{});
 }
-test "Fuzz getters" {
-    try std.testing.fuzz(fuzzGetters, .{});
-}
-
-fn getDate(r: Random) DateTime {
-    return .{
-        .timestamp = r.intRangeAtMostBiased(
-            i64,
-            DateTime.date_min.timestamp,
-            DateTime.date_max.timestamp,
-        ),
-    };
-}
-fn fuzzYears(input: []const u8) !void {
-    const seed: u64 = if (input.len >= 8)
-        @bitCast(input[0..8].*)
-    else blk: {
-        var seed_buf: [8]u8 = undefined;
-        @memcpy(seed_buf[0..input.len], input[0..]);
-        break :blk @bitCast(seed_buf);
-    };
-
-    var prng = std.Random.DefaultPrng.init(seed);
-    const random = prng.random();
-
-    const date = getDate(random);
-
-    const max_year = Year.max.to() -| date.getYear().to();
-    const min_year = Year.min.to() -| date.getYear().to();
-    _ = try date.addYearsChecked(random.intRangeAtMostBiased(i40, min_year, max_year));
-}
-
-fn fuzzSetYears(input: []const u8) !void {
-    const seed: u64 = if (input.len >= 8)
-        @bitCast(input[0..8].*)
-    else blk: {
-        var seed_buf: [8]u8 = undefined;
-        @memcpy(seed_buf[0..input.len], input[0..]);
-        break :blk @bitCast(seed_buf);
-    };
-
-    var prng = std.Random.DefaultPrng.init(seed);
-    const random = prng.random();
-
-    const date = getDate(random);
-
-    const set_target = random.intRangeAtMostBiased(i40, Year.min.to(), Year.max.to());
-    const set_year = try Year.fromChecked(set_target);
-
-    const new_date = date.setYear(set_year);
-
-    const expectEqual = std.testing.expectEqual;
-    try expectEqual(set_year, new_date.getYear());
-
-    // Don't bother checking if dates are not both {leap,regular} years. Too complex
-    if (date.getYear().isLeapYear() == new_date.getYear().isLeapYear()) {
-        // Both leap or both non leap
-        try expectEqual(date.getDayOfYear(), new_date.getDayOfYear());
-    }
-}
-
-fn fuzzGetDayOfYear(input: []const u8) !void {
-    const seed: u64 = if (input.len >= 8)
-        @bitCast(input[0..8].*)
-    else blk: {
-        var seed_buf: [8]u8 = undefined;
-        @memcpy(seed_buf[0..input.len], input[0..]);
-        break :blk @bitCast(seed_buf);
-    };
-
-    var prng = std.Random.DefaultPrng.init(seed);
-    const random = prng.random();
-
-    const date = getDate(random);
-
-    _ = date.getDayOfYear();
-}
-
-fn fuzzMonths(input: []const u8) !void {
-    const seed: u64 = if (input.len >= 8)
-        @bitCast(input[0..8].*)
-    else blk: {
-        var seed_buf: [8]u8 = undefined;
-        @memcpy(seed_buf[0..input.len], input[0..]);
-        break :blk @bitCast(seed_buf);
-    };
-
-    var prng = std.Random.DefaultPrng.init(seed);
-    const random = prng.random();
-
-    const date = getDate(random);
-    _ = date.addMonthsChecked(random.int(i40)) catch return;
-}
-
-fn fuzzConstants(input: []const u8) !void {
-    const seed: u64 = if (input.len >= 8)
-        @bitCast(input[0..8].*)
-    else blk: {
-        var seed_buf: [8]u8 = undefined;
-        @memcpy(seed_buf[0..input.len], input[0..]);
-        break :blk @bitCast(seed_buf);
-    };
-
-    var prng = std.Random.DefaultPrng.init(seed);
-    const random = prng.random();
-
-    const date = getDate(random);
-    _ = date.addSecondsChecked(random.int(i64)) catch return;
-    _ = date.addMinutesChecked(random.int(i64)) catch return;
-    _ = date.addHoursChecked(random.int(i64)) catch return;
-    _ = date.addDaysChecked(random.int(i64)) catch return;
-    _ = date.addWeeksChecked(random.int(i64)) catch return;
-}
-
-fn fuzzGetters(input: []const u8) !void {
-    const seed: u64 = if (input.len >= 8)
-        @bitCast(input[0..8].*)
-    else blk: {
-        var seed_buf: [8]u8 = undefined;
-        @memcpy(seed_buf[0..input.len], input[0..]);
-        break :blk @bitCast(seed_buf);
-    };
-
-    var prng = std.Random.DefaultPrng.init(seed);
-    const random = prng.random();
-
-    const date = getDate(random);
-    _ = date.getYear();
-    _ = date.getDayOfYear();
-    _ = date.getMonth();
-    _ = date.getDayOfMonth();
-    _ = date.getWeek();
-    _ = date.getDay();
-    _ = date.getHour();
-    _ = date.getMinute();
-    _ = date.getSecond();
-
-    try std.fmt.format(std.io.null_writer, "{}", .{date});
+test "Fuzz Getters" {
+    try std.testing.fuzz(fuzz.fuzzGetters, .{});
 }

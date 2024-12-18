@@ -2087,7 +2087,7 @@ pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatO
 
     try std.fmt.format(
         writer,
-        "{}-{}-{}T{}:{}:{}Z",
+        "{}-{}-{}T{}:{}:{}",
         .{
             value.getYear(),
             value.getMonth(),

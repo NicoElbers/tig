@@ -131,7 +131,7 @@ pub const Year = enum(i40) {
 
     pub fn toChecked(year: Year) Error!i40 {
         if (!year.isValid())
-            return Error.UnrepresetableYear;
+            return Error.UnrepresentableYear;
 
         return toUnchecked(year);
     }

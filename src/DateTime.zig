@@ -547,19 +547,24 @@ pub const Year = enum(i40) {
         try expectEqual(-52 * 8 - 53 * 2, Year.from(-10).weeksSinceEpoch()); // Mon
     }
 
-    pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(year: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
 
         if (std.mem.eql(u8, fmt, "any")) {
             try writer.writeAll(@typeName(@This()));
             try writer.writeAll("(");
-            try std.fmt.formatInt(value.to(), 10, .lower, .{}, writer);
+            try std.fmt.formatInt(year.toUnchecked(), 10, .lower, .{}, writer);
             try writer.writeAll(")");
         } else {
             // Effectively a copy of std.fmt.formatInt, but I wanted a little
             // bit of custom logic with the sign so we ball
 
-            const int_value = value.to();
+            const int_value = year.toChecked() catch {
+                try writer.writeAll("Invalid Year (");
+                try std.fmt.formatInt(year.toUnchecked(), 10, .lower, .{}, writer);
+                try writer.writeAll(")");
+                return;
+            };
 
             const value_info = @typeInfo(@TypeOf(int_value)).int;
 

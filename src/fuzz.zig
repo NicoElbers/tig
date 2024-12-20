@@ -1,12 +1,31 @@
 fn getDate(r: Random) DateTime {
-    return .{
-        .timestamp = r.intRangeAtMostBiased(
-            i64,
-            DateTime.date_min.timestamp,
-            DateTime.date_max.timestamp,
-        ),
-    };
+    const date: DateTime = .{ .timestamp = r.int(i64) };
+    std.debug.print("Date: {any}\n", .{date});
+    return date;
 }
+
+fn getValidDate(r: Random) DateTime {
+    const date = DateTime.fromGregorianTimestamp(r.intRangeAtMostBiased(
+        i64,
+        DateTime.date_min.timestamp,
+        DateTime.date_max.timestamp,
+    ));
+    std.debug.print("Date: {any}\n", .{date});
+    return date;
+}
+
+fn getYear(r: Random) Year {
+    const year: Year = @enumFromInt(r.int(i64));
+    std.debug.print("Year: {any}\n", .{year});
+    return year;
+}
+
+fn getValidYear(r: Random) Year {
+    const year = Year.from(r.intRangeAtMostBiased(i40, Year.min.to(), Year.max.to()));
+    std.debug.print("Year: {any}\n", .{year});
+    return year;
+}
+
 pub fn fuzzYears(input: []const u8) !void {
     const seed: u64 = if (input.len >= 8)
         @bitCast(input[0..8].*)

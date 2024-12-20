@@ -1270,7 +1270,16 @@ pub const Hour = enum(u5) {
     }
 
     pub fn to(hour: Hour) u5 {
+        assert(hour.isValid());
+        return toUnchecked(hour);
+    }
+
+    fn toUnchecked(hour: Hour) u5 {
         return @intFromEnum(hour);
+    }
+
+    pub fn isValid(hour: Hour) bool {
+        return hour.toUnchecked() < 24;
     }
 
     pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -1310,7 +1319,16 @@ pub const Minute = enum(u6) {
     }
 
     pub fn to(minute: Minute) u6 {
+        assert(minute.isValid());
+        return minute.toUnchecked();
+    }
+
+    fn toUnchecked(minute: Minute) u6 {
         return @intFromEnum(minute);
+    }
+
+    pub fn isValid(minute: Minute) bool {
+        return minute.toUnchecked() < 60;
     }
 
     pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -1338,6 +1356,7 @@ pub const Second = enum(u6) {
 
     pub fn fromChecked(second: u6) Error!Second {
         // TODO: Leap seconds can get to 60, do we handle that here?
+        //  - I say we handle that when formatting leap seconds
         if (second >= 60)
             return Error.UnrepresentableSecond;
 
@@ -1345,11 +1364,21 @@ pub const Second = enum(u6) {
     }
 
     pub fn from(second: u6) Second {
+        assert(second < 60);
         return @enumFromInt(second);
     }
 
     pub fn to(second: Second) u6 {
+        assert(second.isValid());
+        return toUnchecked(second);
+    }
+
+    fn toUnchecked(second: Second) u6 {
         return @intFromEnum(second);
+    }
+
+    pub fn isValid(second: Second) bool {
+        return second.toUnchecked() < 60;
     }
 
     pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {

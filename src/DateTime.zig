@@ -1917,33 +1917,11 @@ test addYears {
 }
 
 pub fn addMonthsChecked(date: DateTime, months: i40) !DateTime {
-    const day_of_month = date.getDayOfMonth();
-
-    // We want divTrunc, as -1 month does not mean go back 1 year
-    const years_to_add = try Year.fromChecked(@divTrunc(months, 12));
-    const months_to_add: i40 = @rem(months, 12);
-    const month_ordial = date.getMonth().to0();
-
-    const new_month_ordinal: u4 = @intCast(@mod(month_ordial + months_to_add, 12));
-    const years_overflowed = try Year.fromChecked(@divFloor(month_ordial + months_to_add, 12));
-
-    const new_month = MonthOfYear.from0(new_month_ordinal);
-    const new_year = try Year.fromChecked(date.getYear().to() +|
-        years_to_add.to() +|
-        years_overflowed.to());
-
-    return DateTime.gregorianEpoch
-        .setYear(new_year)
-        .addDays(new_month.ordinalNumberOfFirstOfMonth(new_year.isLeapYear()))
-        .addDays(day_of_month.toOrdinal());
-}
-
-pub fn addMonths(date: DateTime, months: i64) DateTime {
     assert(date.isValid());
     const day_of_month = date.getDayOfMonth();
 
     // We want divTrunc, as -1 month does not mean go back 1 year
-    const years_to_add = Year.from(@intCast(@divTrunc(months, 12)));
+    const years_to_add = try Year.fromChecked(@intCast(@divTrunc(months, 12)));
     const months_to_add = @rem(months, 12);
     const month_ordial = date.getMonth().to0();
 
@@ -1951,24 +1929,45 @@ pub fn addMonths(date: DateTime, months: i64) DateTime {
 
     // We want divFloor because -1 month means we overflowed 1 month into the
     // previous year
-    const years_overflowed = Year.from(@intCast(@divFloor(month_ordial + months_to_add, 12)));
-
-    const new_month = MonthOfYear.from0(new_month_ordinal);
-    const new_year = Year.from(date.getYear().to() +
+    const years_overflowed = try Year.fromChecked(@intCast(@divFloor(month_ordial + months_to_add, 12)));
+    const new_year = try Year.fromChecked(date.getYear().to() +
         years_to_add.to() +
         years_overflowed.to());
+
+    const new_month, const new_day_of_month = blk: {
+        const guessed_month = MonthOfYear.from0(new_month_ordinal);
+
+        if (guessed_month.daysInMonth(new_year.isLeapYear()) >= day_of_month.toUnchecked()) {
+            // The day_of_month fits inside our guessed month, we're good
+            break :blk .{ guessed_month, day_of_month };
+        }
+
+        // day_of_month does _not_ fit inside guessed month, we're 1 month off
+        const new_month = guessed_month.next();
+        const new_day_of_month = DayOfMonth.from(
+            day_of_month.toUnchecked() - guessed_month.daysInMonth(new_year.isLeapYear()),
+            new_month,
+            new_year.isLeapYear(),
+        );
+
+        break :blk .{ new_month, new_day_of_month };
+    };
 
     return DateTime.gregorianEpoch
         .setYear(new_year)
         .addDays(new_month.ordinalNumberOfFirstOfMonth(new_year.isLeapYear()))
-        .addDays(day_of_month.toOrdinal());
+        .addDays(new_day_of_month.toOrdinal(new_month, new_year.isLeapYear()));
+}
+
+pub fn addMonths(date: DateTime, months: i40) DateTime {
+    return date.addMonthsChecked(months) catch unreachable;
 }
 
 test addMonths {
     const expectEqual = std.testing.expectEqual;
 
     const tst = struct {
-        pub fn tst(add: i64, s: DateOptions, e: DateOptions) !void {
+        pub fn tst(add: i40, s: DateOptions, e: DateOptions) !void {
             const start = build(s);
             const end = build(e);
 
@@ -2113,6 +2112,7 @@ pub fn addSecondsChecked(date: DateTime, seconds: i64) !DateTime {
     return .{ .timestamp = new_timestamp };
 }
 
+// FIXME: This should assert the returned date is valid too
 pub fn addSeconds(date: DateTime, seconds: i64) DateTime {
     assert(date.isValid());
     return .{

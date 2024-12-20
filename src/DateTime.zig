@@ -2125,20 +2125,24 @@ pub fn isValid(date: DateTime) bool {
         date.timestamp <= date_max.timestamp;
 }
 
-pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+pub fn format(date: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     _ = options;
     _ = fmt;
+
+    if (!date.isValid()) {
+        return std.fmt.format(writer, "Invalid Date ({d})", .{date.timestamp});
+    }
 
     try std.fmt.format(
         writer,
         "{}-{}-{}T{}:{}:{}",
         .{
-            value.getYear(),
-            value.getMonth(),
-            value.getDayOfMonth(),
-            value.getHour(),
-            value.getMinute(),
-            value.getSecond(),
+            date.getYear(),
+            date.getMonth(),
+            date.getDayOfMonth(),
+            date.getHour(),
+            date.getMinute(),
+            date.getSecond(),
         },
     );
 }

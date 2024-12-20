@@ -2221,9 +2221,6 @@ test "Fuzz Years" {
 test "Fuzz Set Years" {
     try std.testing.fuzz(fuzz.fuzzSetYears, .{});
 }
-test "Fuzz Get Day of Year" {
-    try std.testing.fuzz(fuzz.fuzzGetDayOfYear, .{});
-}
 test "Fuzz Months" {
     try std.testing.fuzz(fuzz.fuzzMonths, .{});
 }
@@ -2232,4 +2229,7 @@ test "Fuzz Constants" {
 }
 test "Fuzz Getters" {
     try std.testing.fuzz(fuzz.fuzzGetters, .{});
+}
+test "Fuzz format" {
+    try std.testing.fuzz(fuzz.fuzzFormat, .{});
 }

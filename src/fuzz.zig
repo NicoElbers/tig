@@ -40,9 +40,22 @@ pub fn fuzzYears(input: []const u8) !void {
 
     const date = getDate(random);
 
-    const max_year = Year.max.to() -| date.getYear().to();
-    const min_year = Year.min.to() -| date.getYear().to();
-    _ = try date.addYearsChecked(random.intRangeAtMostBiased(i40, min_year, max_year));
+    {
+        const max_year = Year.max.to() -| date.getYear().to();
+        const min_year = Year.min.to() -| date.getYear().to();
+        const y = try date.addYearsChecked(random.intRangeAtMostBiased(i40, min_year, max_year));
+        _ = y.getYear();
+    }
+    {
+        const set = getValidYear(random);
+        const d = DateTime.gregorianEpoch.addYears(set.to());
+        const get = d.getYear();
+        try expectEqual(set, get);
+    }
+    blk: {
+        const d = DateTime.gregorianEpoch.addYearsChecked(@intFromEnum(getYear(random))) catch break :blk;
+        try expect(d.isValid());
+    }
 }
 
 pub fn fuzzSetYears(input: []const u8) !void {
@@ -64,31 +77,14 @@ pub fn fuzzSetYears(input: []const u8) !void {
 
     const new_date = date.setYear(set_year);
 
-    const expectEqual = std.testing.expectEqual;
     try expectEqual(set_year, new_date.getYear());
 
-    // Don't bother checking if dates are not both {leap,regular} years. Too complex
+    // Don't bother checking if dates are not both {leap,regular} years.
+    // Too complex to fuzz
     if (date.getYear().isLeapYear() == new_date.getYear().isLeapYear()) {
         // Both leap or both non leap
         try expectEqual(date.getDayOfYear(), new_date.getDayOfYear());
     }
-}
-
-pub fn fuzzGetDayOfYear(input: []const u8) !void {
-    const seed: u64 = if (input.len >= 8)
-        @bitCast(input[0..8].*)
-    else blk: {
-        var seed_buf: [8]u8 = undefined;
-        @memcpy(seed_buf[0..input.len], input[0..]);
-        break :blk @bitCast(seed_buf);
-    };
-
-    var prng = std.Random.DefaultPrng.init(seed);
-    const random = prng.random();
-
-    const date = getDate(random);
-
-    _ = date.getDayOfYear();
 }
 
 pub fn fuzzMonths(input: []const u8) !void {
@@ -103,8 +99,11 @@ pub fn fuzzMonths(input: []const u8) !void {
     var prng = std.Random.DefaultPrng.init(seed);
     const random = prng.random();
 
-    const date = getDate(random);
-    _ = date.addMonthsChecked(random.int(i40)) catch return;
+    blk: {
+        const date = getDate(random);
+        const d = date.addMonthsChecked(random.int(i40)) catch break :blk;
+        try expect(d.isValid());
+    }
 }
 
 pub fn fuzzConstants(input: []const u8) !void {
@@ -120,11 +119,26 @@ pub fn fuzzConstants(input: []const u8) !void {
     const random = prng.random();
 
     const date = getDate(random);
-    _ = date.addSecondsChecked(random.int(i64)) catch return;
-    _ = date.addMinutesChecked(random.int(i64)) catch return;
-    _ = date.addHoursChecked(random.int(i64)) catch return;
-    _ = date.addDaysChecked(random.int(i64)) catch return;
-    _ = date.addWeeksChecked(random.int(i64)) catch return;
+    blk: {
+        const d = date.addSecondsChecked(random.int(i64)) catch break :blk;
+        try expect(d.isValid());
+    }
+    blk: {
+        const d = date.addMinutesChecked(random.int(i64)) catch break :blk;
+        try expect(d.isValid());
+    }
+    blk: {
+        const d = date.addHoursChecked(random.int(i64)) catch break :blk;
+        try expect(d.isValid());
+    }
+    blk: {
+        const d = date.addDaysChecked(random.int(i64)) catch break :blk;
+        try expect(d.isValid());
+    }
+    blk: {
+        const d = date.addWeeksChecked(random.int(i64)) catch break :blk;
+        try expect(d.isValid());
+    }
 }
 
 pub fn fuzzGetters(input: []const u8) !void {
@@ -139,21 +153,81 @@ pub fn fuzzGetters(input: []const u8) !void {
     var prng = std.Random.DefaultPrng.init(seed);
     const random = prng.random();
 
-    const date = getDate(random);
-    _ = date.getYear();
-    _ = date.getDayOfYear();
-    _ = date.getMonth();
-    _ = date.getDayOfMonth();
-    _ = date.getWeek();
-    _ = date.getDay();
-    _ = date.getHour();
-    _ = date.getMinute();
-    _ = date.getSecond();
+    const date = getValidDate(random);
+    {
+        const o = date.getYear();
+        try expect(o.isValid());
+    }
+    {
+        const o = date.getDayOfYear();
+        std.debug.print("Year: {}; doy: {d}; date: {}\n", .{ date.getYear(), @intFromEnum(o), date });
+        try expect(o.isValid(date.getYear().isLeapYear()));
+    }
+    {
+        // Month is exhaustive, and cannot be invalid
+        _ = date.getMonth();
+    }
+    {
+        const o = date.getDayOfMonth();
+        try expect(o.isValid(date.getMonth(), date.getYear().isLeapYear()));
+    }
+    {
+        const o = date.getWeek();
+        try expect(o.isValid());
+    }
+    {
+        const o = date.getDay();
+        try expect(o.isValid());
+    }
+    {
+        const o = date.getHour();
+        try expect(o.isValid());
+    }
+    {
+        const o = date.getMinute();
+        try expect(o.isValid());
+    }
+    {
+        const o = date.getSecond();
+        try expect(o.isValid());
+    }
+}
 
-    try std.fmt.format(std.io.null_writer, "{}", .{date});
+pub fn fuzzFormat(input: []const u8) !void {
+    const seed: u64 = if (input.len >= 8)
+        @bitCast(input[0..8].*)
+    else blk: {
+        var seed_buf: [8]u8 = undefined;
+        @memcpy(seed_buf[0..input.len], input[0..]);
+        break :blk @bitCast(seed_buf);
+    };
+    var prng = std.Random.DefaultPrng.init(seed);
+    const random = prng.random();
+    const nullWriter = std.io.null_writer;
+
+    const year = getYear(random);
+    try year.format("", .{}, nullWriter);
+    try year.format("any", .{}, nullWriter);
+
+    const date = getDate(random);
+
+    try date.format("", .{}, nullWriter);
+    try date.format("any", .{}, nullWriter);
+
+    if (!date.isValid()) return;
+
+    try date.getYear().format("any", .{}, nullWriter);
+    try date.getMonth().format("any", .{}, nullWriter);
+    try date.getDayOfMonth().format("any", .{}, nullWriter);
+    // try date.getDayOfYear().format("any", .{}, nullWriter);
+    try date.getHour().format("any", .{}, nullWriter);
+    try date.getMinute().format("any", .{}, nullWriter);
+    try date.getSecond().format("any", .{}, nullWriter);
 }
 
 const std = @import("std");
+const expectEqual = std.testing.expectEqual;
+const expect = std.testing.expect;
 const Random = std.Random;
 const DateTime = @import("DateTime.zig");
 const Year = DateTime.Year;

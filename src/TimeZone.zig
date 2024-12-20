@@ -8,24 +8,27 @@ pub const Interval = enum(i64) { _ };
 
 const TimeOffsetFn = *const fn (DateTime) Interval;
 const TimeOffset = union(enum) {
-    constant: Interval,
+    static: Interval,
     dynamic: TimeOffsetFn,
 
     pub fn getOffset(self: @This(), date: DateTime) Interval {
         return switch (self) {
-            .constant => |s| s,
+            .static => |s| s,
             .dynamic => |s| s(date),
         };
     }
 };
 
-pub fn @"utc+1"(date: DateTime) @This() {
+pub fn init(date: DateTime, second_offset: i64) @This() {
     return .{
         .date = date,
-        .time_zone_list = &.{.{ .constant = @enumFromInt(std.time.s_per_hour) }},
+        .time_zone_list = &.{.{
+            .static = @enumFromInt(second_offset),
+        }},
     };
 }
 
+// FIXME: Ensure this never fails
 pub fn localizedDate(self: @This()) DateTime {
     var updated_date = self.date;
     for (self.time_zone_list) |item| {

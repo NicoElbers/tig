@@ -1149,12 +1149,22 @@ pub const DayOfMonth = enum(u5) {
         return from(day + 1, month, is_leap_year);
     }
 
-    pub fn toOrdinal(day_of_month: DayOfMonth) u5 {
-        return toRegularDay(day_of_month) - 1;
+    pub fn toOrdinal(day_of_month: DayOfMonth, month: MonthOfYear, is_leap_year: bool) u5 {
+        return toRegularDay(day_of_month, month, is_leap_year) - 1;
     }
 
-    pub fn toRegularDay(day_of_month: DayOfMonth) u5 {
+    pub fn toRegularDay(day_of_month: DayOfMonth, month: MonthOfYear, is_leap_year: bool) u5 {
+        assert(day_of_month.isValid(month, is_leap_year));
+        return day_of_month.toUnchecked();
+    }
+
+    pub fn toUnchecked(day_of_month: DayOfMonth) u5 {
         return @intFromEnum(day_of_month);
+    }
+
+    pub fn isValid(day_of_month: DayOfMonth, month: MonthOfYear, is_leap_year: bool) bool {
+        return day_of_month != .invalid and
+            day_of_month.toUnchecked() <= month.daysInMonth(is_leap_year);
     }
 
     pub fn from(day: u5, month: MonthOfYear, is_leap_year: bool) DayOfMonth {
@@ -1177,10 +1187,10 @@ pub const DayOfMonth = enum(u5) {
         if (std.mem.eql(u8, fmt, "any")) {
             try writer.writeAll(@typeName(@This()));
             try writer.writeAll("(");
-            try std.fmt.formatInt(value.toOrdinal(), 10, .lower, .{}, writer);
+            try std.fmt.formatInt(value.toUnchecked(), 10, .lower, .{}, writer);
             try writer.writeAll(")");
         } else {
-            try std.fmt.formatInt(value.toRegularDay(), 10, .lower, .{
+            try std.fmt.formatInt(value.toUnchecked(), 10, .lower, .{
                 .width = 2,
                 .fill = '0',
                 .alignment = .right,
@@ -1717,7 +1727,7 @@ pub fn buildTyped(b: DateOptionsTyped) DateTime {
     return DateTime.gregorianEpoch
         .setYear(b.year)
         .addDays(b.month.ordinalNumberOfFirstOfMonth(b.year.isLeapYear()))
-        .addDays(b.day_of_month.toOrdinal())
+        .addDays(b.day_of_month.toOrdinal(b.month, b.year.isLeapYear()))
         .addHours(b.hour.to())
         .addMinutes(b.minute.to())
         .addSeconds(b.second.to());

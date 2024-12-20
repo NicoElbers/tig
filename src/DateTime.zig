@@ -1132,7 +1132,7 @@ pub const DayOfYear = enum(u9) {
     }
 
     pub fn isValid(self: DayOfYear, is_leap_year: bool) bool {
-        const max_ordinal_day = 355 + @intFromBool(is_leap_year);
+        const max_ordinal_day = 365 + @as(u9, @intFromBool(is_leap_year));
 
         return self != .invalid and
             self.to() <= max_ordinal_day;

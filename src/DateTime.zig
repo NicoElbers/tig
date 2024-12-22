@@ -506,19 +506,33 @@ pub const Year = enum(i40) {
     }
 
     pub fn weeksInYear(year: Year) u6 {
-        // For a year to contain 53 weeks, it must:
-        // - Have its first day be before or on a Thursday;
-        // - Have its last day be after or on a Thursday;
+        // https://en.wikipedia.org/wiki/Week#Week_52_and_53
+        // It is also possible to determine if the last week of
+        // the previous year was Week 52 or Week 53 as follows:
+        // - If 1 January falls on a Friday, then it is part of
+        //   Week 53 of the previous year (W53-5).
+        // - If 1 January falls on a Saturday,
+        //   - then it is part of Week 53 of the previous year if
+        //     that is a leap year (W53-6),
+        //   - and part of Week 52 otherwise (W52-6), i.e. if
+        //     the previous year is a common year.
+        // - If 1 January falls on a Sunday, then it is part of
+        //   Week 52 of the previous year (W52-7).
         //
-        // Important facts:
-        // - A non leap year has 52 weeks and 1 day;
-        // - A leap year has 52 weeks and 2 days;
-        // - A week is contained in a year, if the Thursday of that week is
-        //   in the year;
-
+        //  However we can avoid looking at the next year and have less
+        //  complexity.
+        //
+        // Imporant facts:
+        // - We know that on a leap year, the day shifts 2 days
+        //   foreward (monday -> wednesday),
+        // - Otherwise it shifts 1 day foreward (monday -> tuesday)
         return switch (year.firstDay()) {
-            .Tuesday => 52 + @as(u6, @intFromBool(year.isLeapYear())),
-            .Wednesday => 53,
+            // On a leap year Wed -> Fri
+            .Wednesday => 52 + @as(u6, @intFromBool(year.isLeapYear())),
+            // On a leap year Thu -> Sat
+            // On a norm year Thu -> Fri
+            .Thursday => 53,
+            // Any other combination does not land on Friday
             else => 52,
         };
     }
@@ -529,14 +543,23 @@ pub const Year = enum(i40) {
         try expectEqual(52, Year.from(0).weeksInYear()); // Sat
         try expectEqual(52, Year.from(1).weeksInYear()); // Mon
         try expectEqual(52, Year.from(2).weeksInYear()); // Tue
-        try expectEqual(53, Year.from(3).weeksInYear()); // Wed
-        try expectEqual(52, Year.from(4).weeksInYear()); // Thu
+        try expectEqual(52, Year.from(3).weeksInYear()); // Wed
+        try expectEqual(53, Year.from(4).weeksInYear()); // Thu
         try expectEqual(52, Year.from(5).weeksInYear()); // Sat
         try expectEqual(52, Year.from(6).weeksInYear()); // Sun
         try expectEqual(52, Year.from(7).weeksInYear()); // Mon
-        try expectEqual(53, Year.from(8).weeksInYear()); // Tue
-        try expectEqual(52, Year.from(9).weeksInYear()); // Thu
+        try expectEqual(52, Year.from(8).weeksInYear()); // Tue
+        try expectEqual(53, Year.from(9).weeksInYear()); // Thu
         try expectEqual(52, Year.from(10).weeksInYear()); // Fri
+
+        // From https://www.epochconverter.com/years
+        try expectEqual(52, Year.from(1800).weeksInYear());
+        try expectEqual(53, Year.from(1801).weeksInYear());
+        try expectEqual(52, Year.from(1802).weeksInYear());
+
+        try expectEqual(52, Year.from(2019).weeksInYear());
+        try expectEqual(53, Year.from(2020).weeksInYear());
+        try expectEqual(52, Year.from(2021).weeksInYear());
     }
 
     pub fn weeksSinceEpoch(year: Year) i45 {

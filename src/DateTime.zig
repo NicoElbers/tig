@@ -581,13 +581,19 @@ pub const Year = enum(i40) {
     test weeksSinceEpoch {
         const expectEqual = std.testing.expectEqual;
 
-        try expectEqual(0, Year.from(0).weeksSinceEpoch());
+        try expectEqual(0, Year.from(0).weeksSinceEpoch()); // Sat
 
-        try expectEqual(52 * 1 + 53 * 0, Year.from(1).weeksSinceEpoch()); // Mon
-        try expectEqual(52 * 2 + 53 * 0, Year.from(2).weeksSinceEpoch()); // Tue
-        try expectEqual(52 * 3 + 53 * 0, Year.from(3).weeksSinceEpoch()); // Wed
-        try expectEqual(52 * 3 + 53 * 1, Year.from(4).weeksSinceEpoch()); // Thu
-        try expectEqual(52 * 4 + 53 * 1, Year.from(5).weeksSinceEpoch()); // Sat
+        // 52 * 1 + 53 * 0
+        try expectEqual(52, Year.from(1).weeksSinceEpoch()); // Mon
+
+        // 52 * 2 + 53 * 0
+        try expectEqual(104, Year.from(2).weeksSinceEpoch()); // Tue
+        // 52 * 3 + 53 * 0
+        try expectEqual(156, Year.from(3).weeksSinceEpoch()); // Wed
+        // 52 * 3 + 53 * 1
+        try expectEqual(209, Year.from(4).weeksSinceEpoch()); // Thu
+        // 52 * 4 + 53 * 1
+        try expectEqual(261, Year.from(5).weeksSinceEpoch()); // Sat
 
         try expectEqual(-52 * 1 - 53 * 0, Year.from(-1).weeksSinceEpoch()); // Fri
         try expectEqual(-52 * 2 - 53 * 0, Year.from(-2).weeksSinceEpoch()); // Thu

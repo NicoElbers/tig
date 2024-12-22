@@ -1124,6 +1124,10 @@ pub const WeekOfYear = enum(u6) {
 
     pub const Error = error{UnrepresentableWeek};
 
+    pub fn fromWeek(week: Week) WeekOfYear {
+        return week.weekOfYear();
+    }
+
     pub fn fromChecked(week: u6, year: Year) WeekOfYear {
         if (week < 1 or week >= year.weeksInYear())
             return Error.UnrepresentableWeek;

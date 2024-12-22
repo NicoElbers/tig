@@ -372,26 +372,57 @@ pub const Year = enum(i40) {
     test fromCalendarDay {
         const expectEqual = std.testing.expectEqual;
 
+        // This is really hard to get right, do some hard coded manually verified tests
+
+        // Year 0 starts on day 0
         try expectEqual(Year.from(0), fromCalendarDay(Day.from(0)));
+        // Year 0 is 366 days long, since day 0 is a day, 365 is the last day
         try expectEqual(Year.from(0), fromCalendarDay(Day.from(365)));
 
-        // Negatives are hard, do some hard coded manually verified tests
-        try expectEqual(Year.from(-1), fromCalendarDay(Day.from(-1)));
+        // Year 0 end + 1
+        try expectEqual(Year.from(1), fromCalendarDay(Day.from(366)));
+        // Year 1 start + 364, again because day 366 is part of year 1
+        try expectEqual(Year.from(1), fromCalendarDay(Day.from(730)));
 
+        // Year 1 end + 1
+        try expectEqual(Year.from(2), fromCalendarDay(Day.from(731)));
+        // Year 2 start + 364
+        try expectEqual(Year.from(2), fromCalendarDay(Day.from(1095)));
+
+        // Year 2 end + 1
+        try expectEqual(Year.from(3), fromCalendarDay(Day.from(1096)));
+        // Year 3 start + 364
+        try expectEqual(Year.from(3), fromCalendarDay(Day.from(1460)));
+
+        // Year 3 end + 1
+        try expectEqual(Year.from(4), fromCalendarDay(Day.from(1461)));
+        // Year 4 start + 365, since year 4 is a leap year
+        try expectEqual(Year.from(4), fromCalendarDay(Day.from(1826)));
+
+        // Year 4 end + 1
+        try expectEqual(Year.from(5), fromCalendarDay(Day.from(1827)));
+        // Year 5 start + 364
+        try expectEqual(Year.from(5), fromCalendarDay(Day.from(2191)));
+
+        // Year 0 starts on day 0, so year -1 end at day -1
+        try expectEqual(Year.from(-1), fromCalendarDay(Day.from(-1)));
         // Year -1 is not a leap year, thus has 365 days. Year 0 starts on day 0
         // thus the first day of year -1 must be day -365
         try expectEqual(Year.from(-1), fromCalendarDay(Day.from(-365)));
 
+        // Year -1 start - 1
         try expectEqual(Year.from(-2), fromCalendarDay(Day.from(-366)));
+        // Year -2 end - 364
         try expectEqual(Year.from(-2), fromCalendarDay(Day.from(-730)));
 
-        try expectEqual(Year.from(-2), fromCalendarDay(Day.from(-366)));
-        try expectEqual(Year.from(-2), fromCalendarDay(Day.from(-730)));
-
+        // Year -2 start - 1
         try expectEqual(Year.from(-3), fromCalendarDay(Day.from(-731)));
+        // Year -3 end - 364
         try expectEqual(Year.from(-3), fromCalendarDay(Day.from(-1_095)));
 
+        // Year -3 start - 1
         try expectEqual(Year.from(-4), fromCalendarDay(Day.from(-1_096)));
+        // Year -4 end - 365
         try expectEqual(Year.from(-4), fromCalendarDay(Day.from(-1_461)));
 
         const tst = struct {

@@ -572,7 +572,7 @@ pub const Year = enum(i40) {
 
         const first_day_of_year = year.firstDay();
 
-        const day_till_monday = if (first_day_of_year.isBefore(.Thursday))
+        const day_till_monday = if (first_day_of_year.isAfter(.Thursday))
             // We need to find the _next_ monday
             7 - @as(i48, first_day_of_year.toOrdinal())
         else
@@ -1188,7 +1188,7 @@ pub const WeekOfYear = enum(u6) {
 
         const prev_year = year.tryPrev() catch return false;
 
-        return (week_num == prev_year.weeksInYear() and year.firstDay().isAfter(.Thursday));
+        return week_num == prev_year.weeksInYear() and year.firstDay().isAfter(.Thursday);
     }
 
     pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -1421,11 +1421,11 @@ pub const DayOfWeek = enum(u3) {
         };
     }
 
-    pub fn isBefore(reference: DayOfWeek, day: DayOfWeek) bool {
+    pub fn isBefore(day: DayOfWeek, reference: DayOfWeek) bool {
         return @intFromEnum(reference) > @intFromEnum(day);
     }
 
-    pub fn isAfter(reference: DayOfWeek, day: DayOfWeek) bool {
+    pub fn isAfter(day: DayOfWeek, reference: DayOfWeek) bool {
         return @intFromEnum(reference) < @intFromEnum(day);
     }
 };

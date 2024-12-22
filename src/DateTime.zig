@@ -611,6 +611,22 @@ pub const Year = enum(i40) {
         try tst(-156, -3);
     }
 
+    pub fn tryNext(year: Year) Error!Year {
+        const next_year = Year.fromUnchecked(year.toUnchecked() +| 1);
+
+        if (!next_year.isValid()) return Error.UnrepresentableYear;
+
+        return next_year;
+    }
+
+    pub fn tryPrev(year: Year) Error!Year {
+        const prev_year = Year.fromUnchecked(year.toUnchecked() -| 1);
+
+        if (!prev_year.isValid()) return Error.UnrepresentableYear;
+
+        return prev_year;
+    }
+
     pub fn format(year: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
 
@@ -1151,8 +1167,25 @@ pub const WeekOfYear = enum(u6) {
     }
 
     pub fn isValid(week: WeekOfYear, year: Year) bool {
-        return week.toUnckecked() < 1 or
-            week.toUnckecked() <= year.weeksInYear();
+        // We have 3 cases:
+        // 1) the week is 1 <= week <= year.weeksInYear()
+        // 2) we're in the last week of the previous year, AND
+        //    the first few days of this year map to the last week
+        //    of the previous year
+        // 3) we're in the first week of next year, AND
+        //    the last few days of this year map to the first week
+        //    of the next year
+        //
+        // Since the third case would map {52,53} to 1, we can safely ignore
+        // it. With the provided information we cannot differenciate this case,
+        // and frankly I don't want this struct to depend on more than a year.
+        const week_num = week.toUnckecked();
+
+        if (1 <= week_num and week_num <= year.weeksInYear()) return true;
+
+        const prev_year = year.tryPrev() catch return false;
+
+        return (week_num == prev_year.weeksInYear() and year.firstDay().isAfter(.Thursday));
     }
 
     pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {

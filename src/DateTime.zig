@@ -878,7 +878,8 @@ pub const Week = enum(i45) {
     }
 
     pub fn firstDayOfWeek(week: Week) Day {
-        return Day.from(week.to() * 7 - DayOfWeek.Saturday.toOrdinal());
+        // We need to cast up to avoid an integer overflow
+        return Day.from(@as(i48, week.to()) * 7 - DayOfWeek.Saturday.toOrdinal());
     }
 
     pub fn dayOfWeek(week: Week, day: DayOfWeek) Day {

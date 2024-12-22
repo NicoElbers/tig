@@ -519,8 +519,7 @@ pub const Year = enum(i40) {
         // - If 1 January falls on a Sunday, then it is part of
         //   Week 52 of the previous year (W52-7).
         //
-        //  However we can avoid looking at the next year and have less
-        //  complexity.
+        //  However in most cases you want the weeks in the current year
         //
         // Imporant facts:
         // - We know that on a leap year, the day shifts 2 days
@@ -562,49 +561,54 @@ pub const Year = enum(i40) {
         try expectEqual(52, Year.from(2021).weeksInYear());
     }
 
-    pub fn weeksSinceEpoch(year: Year) i45 {
-        // Imporant facts:
-        // - If a year contains the Thursday of a week, the week is part of that
-        //   year
-        // - Year 0 starts on a Saturday
-        // - Thursday is 5 days after Saturday
+    pub fn firstWeek(year: Year) Week {
+        // Facts:
+        // - Year 0 starts on week 1, and thus Year(0).weeksSinceEpoch == 1
+        //
+        // Requirements:
+        // - This function must be implemented in constant time
+        //   - No recursion
+        //   - No runtime loops
 
-        const days_since_epoch = year.daysSinceGregorianEpoch();
-        const full_weeks: i45 = @intCast(@divFloor(days_since_epoch, 7));
+        const first_day_of_year = year.firstDay();
 
-        // If the remainder is >= 5, We get another week
-        const overflow: i45 = @intFromBool(@mod(days_since_epoch, 7) >= 5);
+        const day_till_monday = if (first_day_of_year.isBefore(.Thursday))
+            // We need to find the _next_ monday
+            7 - @as(i48, first_day_of_year.toOrdinal())
+        else
+            // We need to find the _previous_ monday
+            -@as(i48, first_day_of_year.toOrdinal());
 
-        return full_weeks + overflow;
+        const relevant_day: i48 = @intCast(year.daysSinceGregorianEpoch() + day_till_monday);
+
+        return Week.fromDay(Day.from(relevant_day));
     }
 
-    test weeksSinceEpoch {
+    test firstWeek {
         const expectEqual = std.testing.expectEqual;
 
-        try expectEqual(0, Year.from(0).weeksSinceEpoch()); // Sat
+        // - Year 0 starts on week 1
+        try expectEqual(Week.from(1), Year.from(0).firstWeek());
 
-        // 52 * 1 + 53 * 0
-        try expectEqual(52, Year.from(1).weeksSinceEpoch()); // Mon
+        const tst = struct {
+            pub fn tst(w: i40, y: i40) !void {
+                const week = Week.from(w);
+                const year = Year.from(y);
 
-        // 52 * 2 + 53 * 0
-        try expectEqual(104, Year.from(2).weeksSinceEpoch()); // Tue
-        // 52 * 3 + 53 * 0
-        try expectEqual(156, Year.from(3).weeksSinceEpoch()); // Wed
-        // 52 * 3 + 53 * 1
-        try expectEqual(209, Year.from(4).weeksSinceEpoch()); // Thu
-        // 52 * 4 + 53 * 1
-        try expectEqual(261, Year.from(5).weeksSinceEpoch()); // Sat
+                try expectEqual(week, year.firstWeek());
+            }
+        }.tst;
 
-        try expectEqual(-52 * 1 - 53 * 0, Year.from(-1).weeksSinceEpoch()); // Fri
-        try expectEqual(-52 * 2 - 53 * 0, Year.from(-2).weeksSinceEpoch()); // Thu
-        try expectEqual(-52 * 2 - 53 * 1, Year.from(-3).weeksSinceEpoch()); // Wed
-        try expectEqual(-52 * 3 - 53 * 1, Year.from(-4).weeksSinceEpoch()); // Mon
-        try expectEqual(-52 * 4 - 53 * 1, Year.from(-5).weeksSinceEpoch()); // Sun
-        try expectEqual(-52 * 5 - 53 * 1, Year.from(-6).weeksSinceEpoch()); // Sat
-        try expectEqual(-52 * 6 - 53 * 1, Year.from(-7).weeksSinceEpoch()); // Fri
-        try expectEqual(-52 * 6 - 53 * 2, Year.from(-8).weeksSinceEpoch()); // Wed
-        try expectEqual(-52 * 7 - 53 * 2, Year.from(-9).weeksSinceEpoch()); // Tue
-        try expectEqual(-52 * 8 - 53 * 2, Year.from(-10).weeksSinceEpoch()); // Mon
+        try tst(1, 0);
+        try tst(53, 1);
+        try tst(105, 2);
+        try tst(157, 3);
+        try tst(209, 4);
+        try tst(262, 5);
+
+        try tst(-51, -1);
+        try tst(-104, -2);
+        try tst(-156, -3);
     }
 
     pub fn format(year: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -922,6 +926,34 @@ pub const Week = enum(i45) {
         return @enumFromInt(week);
     }
 
+    pub fn fromDay(day: Day) Week {
+        const day_num = day.to();
+
+        // Week 0 starts on the first monday before day 0 (a saturday).
+        const day_shifted = day_num + DayOfWeek.Saturday.toOrdinal();
+
+        std.debug.print("day: {d}; shift: {d}\n", .{ day_num, day_shifted });
+
+        // We want divFloor because day -1 should map to week -1
+        const week_num: i45 = @intCast(@divFloor(day_shifted, 7));
+
+        return Week.from(week_num);
+    }
+
+    test fromDay {
+        const expectEqual = std.testing.expectEqual;
+
+        try expectEqual(Week.from(0), Week.fromDay(Day.from(0)));
+        try expectEqual(Week.from(0), Week.fromDay(Day.from(-5)));
+        try expectEqual(Week.from(0), Week.fromDay(Day.from(1)));
+
+        try expectEqual(Week.from(1), Week.fromDay(Day.from(2)));
+        try expectEqual(Week.from(1), Week.fromDay(Day.from(8)));
+
+        try expectEqual(Week.from(2), Week.fromDay(Day.from(9)));
+        try expectEqual(Week.from(2), Week.fromDay(Day.from(15)));
+    }
+
     pub fn to(week: Week) i45 {
         assert(week.isValid());
 
@@ -1021,10 +1053,14 @@ pub const Week = enum(i45) {
 
     pub fn weekOfYear(week: Week) WeekOfYear {
         const year = week.getYearContainingWeek();
-        const weeks_before_year = year.weeksSinceEpoch();
-        const week_in_year: u6 = @intCast(week.to() - weeks_before_year);
+        const first_week_of_year = year.firstWeek();
 
-        return WeekOfYear.from(week_in_year, year);
+        // If this ever fails, then getYearContainingWeek is incorrect
+        assert(first_week_of_year.to() <= week.to());
+
+        const week_in_year: u6 = @intCast(week.to() - first_week_of_year.to());
+
+        return WeekOfYear.from0(week_in_year, year);
     }
 
     test weekOfYear {
@@ -1037,6 +1073,15 @@ pub const Week = enum(i45) {
 
         try expectEqual(WeekOfYear.from(1, Year.from(1)), Week.from(53).weekOfYear());
         try expectEqual(WeekOfYear.from(52, Year.from(1)), Week.from(104).weekOfYear());
+
+        try expectEqual(WeekOfYear.from(1, Year.from(2)), Week.from(105).weekOfYear());
+        try expectEqual(WeekOfYear.from(52, Year.from(2)), Week.from(156).weekOfYear());
+
+        try expectEqual(WeekOfYear.from(1, Year.from(3)), Week.from(157).weekOfYear());
+        try expectEqual(WeekOfYear.from(52, Year.from(3)), Week.from(208).weekOfYear());
+
+        try expectEqual(WeekOfYear.from(1, Year.from(4)), Week.from(209).weekOfYear());
+        try expectEqual(WeekOfYear.from(53, Year.from(4)), Week.from(261).weekOfYear());
     }
 
     pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -1337,6 +1382,14 @@ pub const DayOfWeek = enum(u3) {
             .Sunday    => .Saturday,
             // zig fmt: on
         };
+    }
+
+    pub fn isBefore(reference: DayOfWeek, day: DayOfWeek) bool {
+        return @intFromEnum(reference) > @intFromEnum(day);
+    }
+
+    pub fn isAfter(reference: DayOfWeek, day: DayOfWeek) bool {
+        return @intFromEnum(reference) < @intFromEnum(day);
     }
 };
 

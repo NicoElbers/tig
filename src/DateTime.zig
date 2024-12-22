@@ -942,15 +942,32 @@ pub const Week = enum(i45) {
         return Day.from(@as(i48, week.to()) * 7 - DayOfWeek.Saturday.toOrdinal());
     }
 
+    test firstDayOfWeek {
+        const expectEqual = std.testing.expectEqual;
+
+        try expectEqual(Day.from(-12), Week.from(-1).firstDayOfWeek());
+        try expectEqual(Day.from(-5), Week.from(0).firstDayOfWeek());
+        try expectEqual(Day.from(2), Week.from(1).firstDayOfWeek());
+
+        for (1..1000) |week_idx| {
+            // Week 1 starts at day 2, after that increment by 7 every time
+            const day = Day.from(@intCast((week_idx - 1) * 7 + 2));
+            const week = Week.from(@intCast(week_idx));
+            try expectEqual(day, week.firstDayOfWeek());
+        }
+    }
+
     pub fn dayOfWeek(week: Week, day: DayOfWeek) Day {
         return Day.from(week.firstDayOfWeek().to() + day.toOrdinal());
     }
 
-    test firstDayOfWeek {
+    test dayOfWeek {
         const expectEqual = std.testing.expectEqual;
 
-        try expectEqual(Day.from(-5), Week.from(0).firstDayOfWeek());
-        try expectEqual(Day.from(2), Week.from(1).firstDayOfWeek());
+        try expectEqual(Day.from(0), Week.from(0).dayOfWeek(.Saturday));
+        try expectEqual(Day.from(1), Week.from(0).dayOfWeek(.Sunday));
+        try expectEqual(Day.from(-2), Week.from(0).dayOfWeek(.Thursday));
+        try expectEqual(Day.from(5), Week.from(1).dayOfWeek(.Thursday));
     }
 
     /// Gets the day that contains this week. This is not equal to the year of

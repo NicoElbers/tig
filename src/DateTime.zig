@@ -978,21 +978,36 @@ pub const Week = enum(i45) {
         return Year.fromCalendarDay(week.dayOfWeek(.Thursday));
     }
 
-    test "decltest.getYear" {
+    test getYearContainingWeek {
         const expectEqual = std.testing.expectEqual;
 
         // Since year 0 starts on a Saturday, week 0 actually starts in year
         // -1, funny stuff
         try expectEqual(Year.from(-1), Week.from(0).getYearContainingWeek());
 
+        try expectEqual(52, Year.from(0).weeksInYear());
         try expectEqual(Year.from(0), Week.from(1).getYearContainingWeek());
         try expectEqual(Year.from(0), Week.from(52).getYearContainingWeek());
 
+        try expectEqual(52, Year.from(1).weeksInYear());
         try expectEqual(Year.from(1), Week.from(53).getYearContainingWeek());
         try expectEqual(Year.from(1), Week.from(104).getYearContainingWeek());
 
+        try expectEqual(52, Year.from(2).weeksInYear());
         try expectEqual(Year.from(2), Week.from(105).getYearContainingWeek());
         try expectEqual(Year.from(2), Week.from(156).getYearContainingWeek());
+
+        try expectEqual(52, Year.from(3).weeksInYear());
+        try expectEqual(Year.from(3), Week.from(157).getYearContainingWeek());
+        try expectEqual(Year.from(3), Week.from(208).getYearContainingWeek());
+
+        try expectEqual(53, Year.from(4).weeksInYear());
+        try expectEqual(Year.from(4), Week.from(209).getYearContainingWeek());
+        try expectEqual(Year.from(4), Week.from(261).getYearContainingWeek());
+
+        try expectEqual(52, Year.from(5).weeksInYear());
+        try expectEqual(Year.from(5), Week.from(262).getYearContainingWeek());
+        try expectEqual(Year.from(5), Week.from(313).getYearContainingWeek());
 
         try expectEqual(Year.from(-1), Week.from(0).getYearContainingWeek());
         try expectEqual(Year.from(-1), Week.from(-51).getYearContainingWeek());

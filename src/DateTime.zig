@@ -437,7 +437,7 @@ pub const Year = enum(i40) {
         try tst(739_251, 2024);
     }
 
-    pub fn firstDayOfWeekOfYear(year: Year) DayOfWeek {
+    pub fn firstDay(year: Year) DayOfWeek {
         // Year 0 starts on a Saturday, after that every non leap year
         // starts one day later (Monday -> Tuesday) and every leap year
         // starts two days later (Monday -> Wednesday)
@@ -452,21 +452,21 @@ pub const Year = enum(i40) {
         return DayOfWeek.fromOrdinal(week_days_moved);
     }
 
-    test firstDayOfWeekOfYear {
+    test firstDay {
         const expectEqual = std.testing.expectEqual;
 
-        try expectEqual(.Saturday, Year.from(0).firstDayOfWeekOfYear());
-        try expectEqual(.Monday, Year.from(1).firstDayOfWeekOfYear());
-        try expectEqual(.Tuesday, Year.from(2).firstDayOfWeekOfYear());
-        try expectEqual(.Wednesday, Year.from(3).firstDayOfWeekOfYear());
-        try expectEqual(.Thursday, Year.from(4).firstDayOfWeekOfYear());
-        try expectEqual(.Saturday, Year.from(5).firstDayOfWeekOfYear());
-        try expectEqual(.Sunday, Year.from(6).firstDayOfWeekOfYear());
-        try expectEqual(.Monday, Year.from(7).firstDayOfWeekOfYear());
+        try expectEqual(.Saturday, Year.from(0).firstDay());
+        try expectEqual(.Monday, Year.from(1).firstDay());
+        try expectEqual(.Tuesday, Year.from(2).firstDay());
+        try expectEqual(.Wednesday, Year.from(3).firstDay());
+        try expectEqual(.Thursday, Year.from(4).firstDay());
+        try expectEqual(.Saturday, Year.from(5).firstDay());
+        try expectEqual(.Sunday, Year.from(6).firstDay());
+        try expectEqual(.Monday, Year.from(7).firstDay());
 
-        try expectEqual(.Thursday, Year.from(1970).firstDayOfWeekOfYear());
-        try expectEqual(.Saturday, Year.from(2000).firstDayOfWeekOfYear());
-        try expectEqual(.Monday, Year.from(2024).firstDayOfWeekOfYear());
+        try expectEqual(.Thursday, Year.from(1970).firstDay());
+        try expectEqual(.Saturday, Year.from(2000).firstDay());
+        try expectEqual(.Monday, Year.from(2024).firstDay());
 
         // These are honestly just guesses, they are primarily tested so that
         // I am sure the function won't crash
@@ -485,7 +485,7 @@ pub const Year = enum(i40) {
         // - A week is contained in a year, if the Thursday of that week is
         //   in the year;
 
-        return switch (year.firstDayOfWeekOfYear()) {
+        return switch (year.firstDay()) {
             .Tuesday => 52 + @as(u6, @intFromBool(year.isLeapYear())),
             .Wednesday => 53,
             else => 52,

@@ -948,8 +948,6 @@ pub const Week = enum(i45) {
         // Week 0 starts on the first monday before day 0 (a saturday).
         const day_shifted = day_num + DayOfWeek.Saturday.toOrdinal();
 
-        std.debug.print("day: {d}; shift: {d}\n", .{ day_num, day_shifted });
-
         // We want divFloor because day -1 should map to week -1
         const week_num: i45 = @intCast(@divFloor(day_shifted, 7));
 
@@ -1140,8 +1138,9 @@ pub const WeekOfYear = enum(u6) {
     }
 
     pub fn from(week: u6, year: Year) WeekOfYear {
-        assert(week >= 1);
-        assert(week <= year.weeksInYear());
+        const woy = fromUnchecked(week);
+
+        assert(woy.isValid(year));
 
         return fromUnchecked(week);
     }
@@ -1229,7 +1228,7 @@ pub const Day = enum(i48) {
         assert(day <= max.to());
         assert(day >= min.to());
 
-        return @enumFromInt(day);
+        return fromUnchecked(day);
     }
 
     pub fn fromChecked(day: i64) Error!Day {
@@ -1277,10 +1276,11 @@ pub const DayOfYear = enum(u9) {
     }
 
     pub fn from(day: u9, is_leap_year: bool) DayOfYear {
-        assert(day >= 1);
-        assert(day <= 365 + @as(u9, @intFromBool(is_leap_year)));
+        const doy = fromUnckecked(day);
 
-        return fromUnckecked(day);
+        assert(doy.isValid(is_leap_year));
+
+        return doy;
     }
 
     pub fn from0Checked(day: u9, is_leap_year: bool) Error!DayOfYear {
@@ -2050,8 +2050,6 @@ test setYear {
             const gregorian = gregorianEpoch.setYear(year);
             const unix = unixEpoch.setYear(year);
 
-            // std.debug.print("testing year: {}\n", .{year});
-
             try expectEqual(DayOfYear.from(1, false), gregorian.getDayOfYear());
             try expectEqual(year, gregorian.getYear());
 
@@ -2310,10 +2308,17 @@ pub fn isValid(date: DateTime) bool {
 
 pub fn format(date: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     _ = options;
-    _ = fmt;
 
     if (!date.isValid()) {
         return std.fmt.format(writer, "Invalid Date ({d})", .{date.timestamp});
+    }
+
+    if (std.mem.eql(u8, fmt, "d")) {
+        return std.fmt.format(
+            writer,
+            "{s}({d})",
+            .{ @typeName(@This()), date.timestamp },
+        );
     }
 
     try std.fmt.format(

@@ -1382,6 +1382,12 @@ pub const DayOfYear = enum(u9) {
         return self != .invalid and
             self.to() <= max_ordinal_day;
     }
+
+    pub fn format(doy: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("{d:0>2}", .{@intFromEnum(doy)});
+    }
 };
 
 pub const DayOfMonth = enum(u5) {

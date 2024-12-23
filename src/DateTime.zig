@@ -39,6 +39,8 @@ pub const date_min: DateTime = .{ .timestamp = -9223372036825430400 };
 pub const date_max: DateTime = .{ .timestamp = 9223372036825516799 };
 
 test "epoch" {
+    @disableInstrumentation();
+
     const expectEqual = std.testing.expectEqual;
 
     try expectEqual(build(.{ .year = 0, .month = .January, .day_of_month = 1 }), gregorianEpoch);
@@ -57,6 +59,8 @@ pub const Year = enum(i40) {
     pub const max = Year.fromUnchecked(292277024625);
 
     test "min/max" {
+        @disableInstrumentation();
+
         const expectEqual = std.testing.expectEqual;
 
         try expectEqual(build(.{ .year = min.to() }).getYear(), min);
@@ -93,6 +97,8 @@ pub const Year = enum(i40) {
     }
 
     test from {
+        @disableInstrumentation();
+
         const expectEqual = std.testing.expectEqual;
 
         try expectEqual(123, Year.from(123).to());
@@ -105,6 +111,8 @@ pub const Year = enum(i40) {
     }
 
     test fromChecked {
+        @disableInstrumentation();
+
         const expectError = std.testing.expectError;
         const expectEqual = std.testing.expectEqual;
 
@@ -157,6 +165,8 @@ pub const Year = enum(i40) {
     }
 
     test isLeapYear {
+        @disableInstrumentation();
+
         const expectEqual = std.testing.expectEqual;
 
         try expectEqual(true, isLeapYear(Year.from(0)));
@@ -227,6 +237,8 @@ pub const Year = enum(i40) {
     }
 
     test leapYearsSinceGregorianEpoch {
+        @disableInstrumentation();
+
         const expectEqual = std.testing.expectEqual;
 
         try expectEqual(1, leapYearsSinceGregorianEpoch(Year.from(0)));
@@ -271,6 +283,8 @@ pub const Year = enum(i40) {
     }
 
     test daysSinceGregorianEpoch {
+        @disableInstrumentation();
+
         const expectEqual = std.testing.expectEqual;
 
         try expectEqual(0, daysSinceGregorianEpoch(Year.from(0)));
@@ -370,6 +384,8 @@ pub const Year = enum(i40) {
     }
 
     test fromCalendarDay {
+        @disableInstrumentation();
+
         const expectEqual = std.testing.expectEqual;
 
         // This is really hard to get right, do some hard coded manually verified tests
@@ -485,6 +501,8 @@ pub const Year = enum(i40) {
     }
 
     test firstDay {
+        @disableInstrumentation();
+
         const expectEqual = std.testing.expectEqual;
 
         try expectEqual(.Saturday, Year.from(0).firstDay());
@@ -539,6 +557,8 @@ pub const Year = enum(i40) {
     }
 
     test weeksInYear {
+        @disableInstrumentation();
+
         const expectEqual = std.testing.expectEqual;
 
         try expectEqual(52, Year.from(0).weeksInYear()); // Sat
@@ -587,6 +607,8 @@ pub const Year = enum(i40) {
     }
 
     test firstWeek {
+        @disableInstrumentation();
+
         const expectEqual = std.testing.expectEqual;
 
         // - Year 0 starts on week 1
@@ -866,6 +888,8 @@ pub const MonthOfYear = enum(u4) {
     }
 
     test {
+        @disableInstrumentation();
+
         const expectEqual = std.testing.expectEqual;
 
         var month: MonthOfYear = .January;
@@ -927,6 +951,8 @@ pub const Week = enum(i45) {
     pub const max = Week.fromUnchecked(15250284452423);
 
     test "min/max" {
+        @disableInstrumentation();
+
         const expectEqual = std.testing.expectEqual;
 
         try expectEqual(date_min.getWeek(), min);
@@ -957,6 +983,8 @@ pub const Week = enum(i45) {
     }
 
     test fromDay {
+        @disableInstrumentation();
+
         const expectEqual = std.testing.expectEqual;
 
         try expectEqual(Week.from(0), Week.fromDay(Day.from(0)));
@@ -1021,6 +1049,8 @@ pub const Week = enum(i45) {
     }
 
     test firstDayOfWeek {
+        @disableInstrumentation();
+
         const expectEqual = std.testing.expectEqual;
 
         try expectEqual(Day.from(-12), Week.from(-1).firstDayOfWeek());
@@ -1040,6 +1070,8 @@ pub const Week = enum(i45) {
     }
 
     test dayOfWeek {
+        @disableInstrumentation();
+
         const expectEqual = std.testing.expectEqual;
 
         try expectEqual(Day.from(0), Week.from(0).dayOfWeek(.Saturday));
@@ -1057,6 +1089,8 @@ pub const Week = enum(i45) {
     }
 
     test getYearContainingWeek {
+        @disableInstrumentation();
+
         const expectEqual = std.testing.expectEqual;
 
         // Since year 0 starts on a Saturday, week 0 actually starts in year
@@ -1106,10 +1140,14 @@ pub const Week = enum(i45) {
 
         const week_in_year: u6 = @intCast(week.to() - first_week_of_year.to());
 
+        std.debug.print("wiy: {d}; y: {}; wsiy: {}; fwoy: {}; w: {}\n", .{ week_in_year, year, year.weeksInYear(), first_week_of_year, week });
+
         return WeekOfYear.from0(week_in_year, year);
     }
 
     test weekOfYear {
+        @disableInstrumentation();
+
         const expectEqual = std.testing.expectEqual;
 
         try expectEqual(WeekOfYear.from(52, Year.from(-1)), Week.from(0).weekOfYear());
@@ -1171,6 +1209,8 @@ pub const WeekOfYear = enum(u6) {
 
     pub fn from(week: u6, year: Year) WeekOfYear {
         const woy = fromUnchecked(week);
+
+        std.debug.print("woy: {}; wiy: {d}; year: {}\n", .{ woy, year.weeksInYear(), year });
 
         assert(woy.isValid(year));
 
@@ -1248,6 +1288,8 @@ pub const Day = enum(i48) {
     pub const max = Day.fromUnchecked(106751991166961);
 
     test "min/max" {
+        @disableInstrumentation();
+
         const expectEqual = std.testing.expectEqual;
 
         try expectEqual(date_min.getDay(), min);
@@ -1639,6 +1681,8 @@ pub fn getCalendarDay(date: DateTime) Day {
 }
 
 test getCalendarDay {
+    @disableInstrumentation();
+
     const expectEqual = std.testing.expectEqual;
 
     const tst = struct {
@@ -1693,6 +1737,8 @@ pub fn getYear(date: DateTime) Year {
 }
 
 test getYear {
+    @disableInstrumentation();
+
     const expectEqual = std.testing.expectEqual;
 
     const tst = struct {
@@ -1767,6 +1813,8 @@ pub fn getDayOfYear(date: DateTime) DayOfYear {
 }
 
 test getDayOfYear {
+    @disableInstrumentation();
+
     const expectEqual = std.testing.expectEqual;
 
     const tst = struct {
@@ -1832,6 +1880,8 @@ pub fn getMonth(date: DateTime) MonthOfYear {
 }
 
 test getMonth {
+    @disableInstrumentation();
+
     const expectEqual = std.testing.expectEqual;
 
     const tst = struct {
@@ -1875,6 +1925,8 @@ pub fn getDayOfMonth(date: DateTime) DayOfMonth {
 }
 
 test getDayOfMonth {
+    @disableInstrumentation();
+
     const expectEqual = std.testing.expectEqual;
 
     var date_pos = gregorianEpoch;
@@ -1901,6 +1953,8 @@ pub fn getWeek(date: DateTime) Week {
 }
 
 test getWeek {
+    @disableInstrumentation();
+
     const expectEqual = std.testing.expectEqual;
 
     try expectEqual(Week.from(0), gregorianEpoch.addSeconds(0).getWeek());
@@ -1934,6 +1988,8 @@ pub fn getDay(date: DateTime) Day {
 }
 
 test getDay {
+    @disableInstrumentation();
+
     const expectEqual = std.testing.expectEqual;
 
     try expectEqual(Day.from(0), gregorianEpoch.addSeconds(0).getDay());
@@ -1950,6 +2006,8 @@ pub fn getHour(date: DateTime) Hour {
 }
 
 test getHour {
+    @disableInstrumentation();
+
     const expectEqual = std.testing.expectEqual;
 
     try expectEqual(Hour.from(0), gregorianEpoch.addSeconds(0).getHour());
@@ -1966,6 +2024,8 @@ pub fn getMinute(date: DateTime) Minute {
 }
 
 test getMinute {
+    @disableInstrumentation();
+
     const expectEqual = std.testing.expectEqual;
 
     try expectEqual(Minute.from(0), gregorianEpoch.addSeconds(0).getMinute());
@@ -2009,6 +2069,8 @@ pub fn buildTyped(b: DateOptionsTyped) DateTime {
 }
 
 test buildTyped {
+    @disableInstrumentation();
+
     const expectEqual = std.testing.expectEqual;
 
     try expectEqual(unixEpoch, buildTyped(.{
@@ -2055,6 +2117,8 @@ pub fn buildChecked(b: DateOptions) !DateTime {
 }
 
 test build {
+    @disableInstrumentation();
+
     const expectEqual = std.testing.expectEqual;
 
     try expectEqual(unixEpoch, build(.{ .year = 1970, .month = .January, .day_of_month = 1 }));
@@ -2095,6 +2159,8 @@ pub fn setYear(date: DateTime, year: Year) DateTime {
 }
 
 test setYear {
+    @disableInstrumentation();
+
     const expectEqual = std.testing.expectEqual;
 
     const last_day_of_leap = build(.{ .year = 2000, .month = .December, .day_of_month = 31 });
@@ -2143,6 +2209,8 @@ pub fn addYears(date: DateTime, years: i40) DateTime {
 }
 
 test addYears {
+    @disableInstrumentation();
+
     const expectEqual = std.testing.expectEqual;
 
     for (1..100) |year_step| {
@@ -2208,6 +2276,8 @@ pub fn addMonths(date: DateTime, months: i40) DateTime {
 }
 
 test addMonths {
+    @disableInstrumentation();
+
     const expectEqual = std.testing.expectEqual;
 
     const tst = struct {
@@ -2399,6 +2469,8 @@ pub fn format(date: @This(), comptime fmt: []const u8, options: std.fmt.FormatOp
 }
 
 test format {
+    @disableInstrumentation();
+
     const nullWriter = std.io.null_writer;
 
     _ = try std.fmt.format(nullWriter, "{}", .{gregorianEpoch});
@@ -2436,6 +2508,8 @@ fn functions(comptime Type: type) void {
 }
 
 test {
+    @disableInstrumentation();
+
     _ = Year;
     //functions(Year);
 
@@ -2467,20 +2541,32 @@ test {
 
 const fuzz = @import("fuzz.zig");
 test "Fuzz Years" {
+    @disableInstrumentation();
+
     try std.testing.fuzz(fuzz.fuzzYears, .{});
 }
 test "Fuzz Set Years" {
+    @disableInstrumentation();
+
     try std.testing.fuzz(fuzz.fuzzSetYears, .{});
 }
 test "Fuzz Months" {
+    @disableInstrumentation();
+
     try std.testing.fuzz(fuzz.fuzzMonths, .{});
 }
 test "Fuzz Constants" {
+    @disableInstrumentation();
+
     try std.testing.fuzz(fuzz.fuzzConstants, .{});
 }
 test "Fuzz Getters" {
+    @disableInstrumentation();
+
     try std.testing.fuzz(fuzz.fuzzGetters, .{});
 }
 test "Fuzz format" {
+    @disableInstrumentation();
+
     try std.testing.fuzz(fuzz.fuzzFormat, .{});
 }

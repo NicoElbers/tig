@@ -1140,8 +1140,6 @@ pub const Week = enum(i45) {
 
         const week_in_year: u6 = @intCast(week.to() - first_week_of_year.to());
 
-        std.debug.print("wiy: {d}; y: {}; wsiy: {}; fwoy: {}; w: {}\n", .{ week_in_year, year, year.weeksInYear(), first_week_of_year, week });
-
         return WeekOfYear.from0(week_in_year, year);
     }
 
@@ -1209,8 +1207,6 @@ pub const WeekOfYear = enum(u6) {
 
     pub fn from(week: u6, year: Year) WeekOfYear {
         const woy = fromUnchecked(week);
-
-        std.debug.print("woy: {}; wiy: {d}; year: {}\n", .{ woy, year.weeksInYear(), year });
 
         assert(woy.isValid(year));
 
@@ -1973,7 +1969,6 @@ test getWeekOfYear {
     @disableInstrumentation();
 
     const date = DateTime.build(.{ .year = -35, .day_of_month = 2 });
-    std.debug.print("first: {}; fweek: {}\n", .{ date.getYear().firstDay(), date.getYear().firstWeek() });
     _ = date.getWeekOfYear();
 }
 
@@ -2491,52 +2486,25 @@ const minInt = std.math.minInt;
 const maxInt = std.math.maxInt;
 const cast = std.math.cast;
 
-fn functions(comptime Type: type) void {
-    const decls: []const std.builtin.Type.Declaration = switch (@typeInfo(Type)) {
-        .@"struct" => |info| info.decls,
-        .@"enum" => |info| info.decls,
-        else => @compileError("no"),
-    };
-
-    std.debug.print("Type: {s}\n", .{@typeName(Type)});
-    inline for (decls) |decl| {
-        if (@typeInfo(@TypeOf(@field(Type, decl.name))) == .@"fn") {
-            std.debug.print("\t{s}\n", .{decl.name});
-        }
-    }
-    std.debug.print("\n", .{});
-}
-
 test {
     @disableInstrumentation();
 
     _ = Year;
-    //functions(Year);
 
     // No month, as there is no month calendar (it'd also be truly painful)
     _ = MonthOfYear;
-    //functions(MonthOfYear);
 
     _ = Week;
-    //functions(Week);
     _ = WeekOfYear;
-    //functions(WeekOfYear);
 
     _ = Day;
-    //functions(Day);
     _ = DayOfYear;
-    //functions(DayOfYear);
     _ = DayOfMonth;
-    //functions(DayOfMonth);
     _ = DayOfWeek;
-    //functions(DayOfWeek);
 
     _ = Hour;
-    //functions(Hour);
     _ = Minute;
-    //functions(Minute);
     _ = Second;
-    //functions(Second);
 }
 
 const fuzz = @import("fuzz.zig");

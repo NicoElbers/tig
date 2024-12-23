@@ -293,6 +293,7 @@ pub const Year = enum(i40) {
 
         const tst = struct {
             pub fn tst(day: i64, year: i40) !void {
+                @disableInstrumentation();
                 const year_pos = Year.from(year);
                 const year_neg = Year.from(-year);
 
@@ -308,6 +309,7 @@ pub const Year = enum(i40) {
 
         const tstraw = struct {
             pub fn tstraw(day: i64, year: i40) !void {
+                @disableInstrumentation();
                 try expectEqual(day, Year.from(year).daysSinceGregorianEpoch());
             }
         }.tstraw;
@@ -443,6 +445,7 @@ pub const Year = enum(i40) {
 
         const tst = struct {
             pub fn tst(ordinal_day: i48, year: i40) !void {
+                @disableInstrumentation();
                 const year_pos = Year.from(year);
                 const year_pos_start = Day.from(ordinal_day);
                 const year_pos_end = Day.from(ordinal_day + year_pos.getDaysInYear() - 1);
@@ -616,6 +619,7 @@ pub const Year = enum(i40) {
 
         const tst = struct {
             pub fn tst(w: i40, y: i40) !void {
+                @disableInstrumentation();
                 const week = Week.from(w);
                 const year = Year.from(y);
 
@@ -1012,6 +1016,7 @@ pub const Week = enum(i45) {
 
         const tst = struct {
             pub fn tst(d: i48, w: i45) !void {
+                @disableInstrumentation();
                 const day = Day.from(d);
                 const week = Week.from(w);
 
@@ -1689,6 +1694,7 @@ test getCalendarDay {
 
     const tst = struct {
         pub fn tst(expected: i48, b: DateOptions) !void {
+            @disableInstrumentation();
             const built = build(b);
             const expected_day = Day.from(expected);
 
@@ -1745,6 +1751,7 @@ test getYear {
 
     const tst = struct {
         pub fn tst(b: DateOptions) !void {
+            @disableInstrumentation();
             const built = build(b);
             const year = Year.from(b.year);
 
@@ -1776,6 +1783,7 @@ test getYear {
 
     const tstraw = struct {
         pub fn tstraw(expected: i40, dt: DateTime) !void {
+            @disableInstrumentation();
             const year = Year.from(expected);
 
             try expectEqual(year, dt.getYear());
@@ -1821,6 +1829,7 @@ test getDayOfYear {
 
     const tst = struct {
         pub fn tst(b: DateOptions) !void {
+            @disableInstrumentation();
             const built = build(b);
             const year = Year.from(b.year);
             const is_leap = year.isLeapYear();
@@ -1861,6 +1870,7 @@ test getDayOfYear {
 
     const tstraw = struct {
         pub fn tstraw(expected: u9, dt: DateTime) !void {
+            @disableInstrumentation();
             try expectEqual(DayOfYear.from(expected, true), dt.getDayOfYear());
         }
     }.tstraw;
@@ -1888,6 +1898,7 @@ test getMonth {
 
     const tst = struct {
         pub fn tst(month: MonthOfYear, b: DateOptions) !void {
+            @disableInstrumentation();
             const date = build(b);
             const date_start = build(.{
                 .year = b.year,
@@ -2177,6 +2188,7 @@ test setYear {
 
     const tst = struct {
         pub fn tst(year: Year) !void {
+            @disableInstrumentation();
             const gregorian = gregorianEpoch.setYear(year);
             const unix = unixEpoch.setYear(year);
 
@@ -2283,6 +2295,7 @@ test addMonths {
 
     const tst = struct {
         pub fn tst(add: i40, s: DateOptions, e: DateOptions) !void {
+            @disableInstrumentation();
             const start = build(s);
             const end = build(e);
 

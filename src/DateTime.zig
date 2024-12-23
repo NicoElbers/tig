@@ -2557,3 +2557,8 @@ test "Fuzz format" {
 
     try std.testing.fuzz(fuzz.fuzzFormat, .{});
 }
+test "Fuzz validate" {
+    @disableInstrumentation();
+
+    try std.testing.fuzz(fuzz.fuzzValidate, .{});
+}

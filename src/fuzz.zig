@@ -1,7 +1,9 @@
 fn logFuzz(comptime fmt: []const u8, args: anytype) void {
     if (!@import("builtin").fuzz) return;
 
-    std.debug.print(fmt ++ "\n", args);
+    _ = fmt;
+    _ = args;
+    // std.debug.print(fmt ++ "\n", args);
 }
 
 fn getDate(r: Random) DateTime {

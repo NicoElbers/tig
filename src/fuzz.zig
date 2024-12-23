@@ -1,6 +1,6 @@
 fn getDate(r: Random) DateTime {
     const date: DateTime = .{ .timestamp = r.int(i64) };
-    std.debug.print("Date: {any}\n", .{date});
+    std.debug.print("Date: {d}\n", .{date});
     return date;
 }
 
@@ -10,19 +10,19 @@ fn getValidDate(r: Random) DateTime {
         DateTime.date_min.timestamp,
         DateTime.date_max.timestamp,
     ));
-    std.debug.print("Date: {any}\n", .{date});
+    std.debug.print("Date: {d}\n", .{date});
     return date;
 }
 
 fn getYear(r: Random) Year {
     const year: Year = @enumFromInt(r.int(i64));
-    std.debug.print("Year: {any}\n", .{year});
+    std.debug.print("Year: {d}\n", .{year});
     return year;
 }
 
 fn getValidYear(r: Random) Year {
     const year = Year.from(r.intRangeAtMostBiased(i40, Year.min.to(), Year.max.to()));
-    std.debug.print("Year: {any}\n", .{year});
+    std.debug.print("Year: {d}\n", .{year});
     return year;
 }
 
@@ -154,43 +154,18 @@ pub fn fuzzGetters(input: []const u8) !void {
     const random = prng.random();
 
     const date = getValidDate(random);
-    {
-        const o = date.getYear();
-        try expect(o.isValid());
-    }
-    {
-        const o = date.getDayOfYear();
-        std.debug.print("Year: {}; doy: {d}; date: {}\n", .{ date.getYear(), @intFromEnum(o), date });
-        try expect(o.isValid(date.getYear().isLeapYear()));
-    }
-    {
-        // Month is exhaustive, and cannot be invalid
-        _ = date.getMonth();
-    }
-    {
-        const o = date.getDayOfMonth();
-        try expect(o.isValid(date.getMonth(), date.getYear().isLeapYear()));
-    }
-    {
-        const o = date.getWeek();
-        try expect(o.isValid());
-    }
-    {
-        const o = date.getDay();
-        try expect(o.isValid());
-    }
-    {
-        const o = date.getHour();
-        try expect(o.isValid());
-    }
-    {
-        const o = date.getMinute();
-        try expect(o.isValid());
-    }
-    {
-        const o = date.getSecond();
-        try expect(o.isValid());
-    }
+
+    try expect(date.getYear().isValid());
+    try expect(date.getDayOfYear().isValid(date.getYear().isLeapYear()));
+    _ = date.getMonth();
+    try expect(date.getDayOfMonth().isValid(date.getMonth(), date.getYear().isLeapYear()));
+    try expect(date.getWeekOfYear().isValid(date.getYear()));
+    _ = date.getDayOfWeek();
+    try expect(date.getWeek().isValid());
+    try expect(date.getDay().isValid());
+    try expect(date.getHour().isValid());
+    try expect(date.getMinute().isValid());
+    try expect(date.getSecond().isValid());
 }
 
 pub fn fuzzFormat(input: []const u8) !void {
@@ -219,10 +194,34 @@ pub fn fuzzFormat(input: []const u8) !void {
     try date.getYear().format("any", .{}, nullWriter);
     try date.getMonth().format("any", .{}, nullWriter);
     try date.getDayOfMonth().format("any", .{}, nullWriter);
-    // try date.getDayOfYear().format("any", .{}, nullWriter);
+    try date.getDayOfYear().format("any", .{}, nullWriter);
     try date.getHour().format("any", .{}, nullWriter);
     try date.getMinute().format("any", .{}, nullWriter);
     try date.getSecond().format("any", .{}, nullWriter);
+}
+
+pub fn fuzzValidate(input: []const u8) !void {
+    const seed: u64 = if (input.len >= 8)
+        @bitCast(input[0..8].*)
+    else blk: {
+        var seed_buf: [8]u8 = undefined;
+        @memcpy(seed_buf[0..input.len], input[0..]);
+        break :blk @bitCast(seed_buf);
+    };
+    var prng = std.Random.DefaultPrng.init(seed);
+    const random = prng.random();
+
+    const date = getDate(random);
+
+    _ = date.isValid();
+    _ = date.getYear().isValid();
+    _ = date.getDayOfYear().isValid(date.getYear().isLeapYear());
+    _ = date.getWeekOfYear().isValid(date.getYear());
+    _ = date.getWeek().isValid();
+    _ = date.getDay().isValid();
+    _ = date.getHour().isValid();
+    _ = date.getMinute().isValid();
+    _ = date.getSecond().isValid();
 }
 
 const std = @import("std");
@@ -231,3 +230,4 @@ const expect = std.testing.expect;
 const Random = std.Random;
 const DateTime = @import("DateTime.zig");
 const Year = DateTime.Year;
+const Week = DateTime.Week;

@@ -658,62 +658,16 @@ pub const Year = enum(i40) {
     pub fn format(year: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
 
-        if (std.mem.eql(u8, fmt, "any")) {
-            try writer.writeAll(@typeName(@This()));
-            try writer.writeAll("(");
-            try std.fmt.formatInt(year.toUnchecked(), 10, .lower, .{}, writer);
-            try writer.writeAll(")");
-        } else {
-            // Effectively a copy of std.fmt.formatInt, but I wanted a little
-            // bit of custom logic with the sign so we ball
-
-            const int_value = year.toChecked() catch {
-                try writer.writeAll("Invalid Year (");
-                try std.fmt.formatInt(year.toUnchecked(), 10, .lower, .{}, writer);
-                try writer.writeAll(")");
-                return;
-            };
-
-            const value_info = @typeInfo(@TypeOf(int_value)).int;
-
-            // The type must have the same size as `base` or be wider in order for the
-            // division to work
-            const min_int_bits = comptime @max(value_info.bits, 8);
-            const MinInt = std.meta.Int(.unsigned, min_int_bits);
-
-            const abs_value = @abs(int_value);
-            // The worst case in terms of space needed is base 2, plus 1 for the sign
-            var buf: [1 + @max(@as(comptime_int, value_info.bits), 1)]u8 = undefined;
-
-            var a: MinInt = abs_value;
-            var index: usize = buf.len;
-
-            while (a >= 100) : (a = @divTrunc(a, 100)) {
-                index -= 2;
-                buf[index..][0..2].* = std.fmt.digits2(@intCast(a % 100));
-            }
-
-            if (a < 10) {
-                index -= 1;
-                buf[index] = '0' + @as(u8, @intCast(a));
-            } else {
-                index -= 2;
-                buf[index..][0..2].* = std.fmt.digits2(@intCast(a));
-            }
-
-            while (index > buf.len - 4) {
-                index -= 1;
-                buf[index] = '0';
-            }
-
-            if (int_value < 0) {
-                // Negative integer
-                index -= 1;
-                buf[index] = '-';
-            }
-
-            try writer.writeAll(buf[index..]);
+        // HACK: any is consumed, and I want to map "" to default
+        if (std.mem.eql(u8, fmt, "a")) {
+            return writer.print("{s}({d})", .{ @typeName(@This()), year.toUnchecked() });
         }
+
+        if (!year.isValid()) {
+            return writer.print("Invalid Year ({})", .{year.toUnchecked()});
+        }
+
+        try date_fmt.formatInt(year.to(), .{ .min_length = 4 }, writer);
     }
 };
 
@@ -927,23 +881,26 @@ pub const MonthOfYear = enum(u4) {
         return DayOfMonth.fromOrdinal(@intCast(ordinal_day_of_year - ordinal_days_before_month), month, is_leap_year);
     }
 
-    pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(month: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
 
-        if (std.mem.eql(u8, fmt, "any")) {
-            try writer.writeAll(@typeName(@This()));
-            try writer.writeAll("(");
-            try std.fmt.formatInt(value.to0(), 10, .lower, .{}, writer);
-            try writer.writeAll(")");
-        } else if (std.mem.eql(u8, fmt, "long")) {
-            try writer.writeAll(@tagName(value));
-        } else {
-            try std.fmt.formatInt(value.to(), 10, .lower, .{
-                .width = 2,
-                .fill = '0',
-                .alignment = .right,
-            }, writer);
+        // HACK: any is consumed, and I want to map "" to default
+        if (std.mem.eql(u8, fmt, "a")) {
+            return writer.print("{s}({d})", .{ @typeName(@This()), month.to() });
         }
+
+        // l => long
+        if (std.mem.eql(u8, fmt, "d")) {
+            return writer.writeAll(@tagName(month));
+        }
+
+        // s => short
+        if (std.mem.eql(u8, fmt, "s")) {
+            return writer.writeAll(@tagName(month)[0..3]);
+        }
+
+        // Default => number
+        return date_fmt.formatInt(month.to(), .{ .min_length = 2 }, writer);
     }
 };
 
@@ -1171,21 +1128,19 @@ pub const Week = enum(i45) {
         try expectEqual(WeekOfYear.from(53, Year.from(4)), Week.from(261).weekOfYear());
     }
 
-    pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(week: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
 
-        if (std.mem.eql(u8, fmt, "any")) {
-            try writer.writeAll(@typeName(@This()));
-            try writer.writeAll("(");
-            try std.fmt.formatInt(value.toUnchecked(), 10, .lower, .{}, writer);
-            try writer.writeAll(")");
-        } else {
-            try std.fmt.formatInt(value.toUnchecked(), 10, .lower, .{
-                .width = 2,
-                .fill = '0',
-                .alignment = .right,
-            }, writer);
+        // HACK: any is consumed, and I want to map "" to default
+        if (std.mem.eql(u8, fmt, "a")) {
+            return writer.print("{s}({d})", .{ @typeName(@This()), week.toUnchecked() });
         }
+
+        if (!week.isValid()) {
+            return writer.print("Invalid Week ({d})", .{week.toUnchecked()});
+        }
+
+        try date_fmt.formatInt(week.to(), .{ .min_length = 2 }, writer);
     }
 };
 
@@ -1264,21 +1219,16 @@ pub const WeekOfYear = enum(u6) {
         return week_num == prev_year.weeksInYear() and year.firstDay().isAfter(.Thursday);
     }
 
-    pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(week_of_year: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
 
-        if (std.mem.eql(u8, fmt, "any")) {
-            try writer.writeAll(@typeName(@This()));
-            try writer.writeAll("(");
-            try std.fmt.formatInt(value.to0Unckecked(), 10, .lower, .{}, writer);
-            try writer.writeAll(")");
-        } else {
-            try std.fmt.formatInt(value.toUnckecked(), 10, .lower, .{
-                .width = 2,
-                .fill = '0',
-                .alignment = .right,
-            }, writer);
+        // HACK: any is consumed, and I want to map "" to default
+        if (std.mem.eql(u8, fmt, "a")) {
+            return writer.print("{s}({d})", .{ @typeName(@This()), week_of_year.toUnckecked() });
         }
+
+        // Cannot check validity, as we don't have access to a year
+        try date_fmt.formatInt(week_of_year.toUnckecked(), .{ .min_length = 2 }, writer);
     }
 };
 
@@ -1388,10 +1338,14 @@ pub const DayOfYear = enum(u9) {
             self.to() <= max_ordinal_day;
     }
 
-    pub fn format(doy: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = fmt;
+    pub fn format(day_of_year: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
-        try writer.print("{d:0>2}", .{@intFromEnum(doy)});
+
+        if (std.mem.eql(u8, fmt, "a")) {
+            return writer.print("{s}({d})", .{ @typeName(@This()), day_of_year.to() });
+        }
+
+        try date_fmt.formatInt(day_of_year.to(), .{}, writer);
     }
 };
 
@@ -1437,21 +1391,16 @@ pub const DayOfMonth = enum(u5) {
         return @enumFromInt(day);
     }
 
-    pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(day_of_month: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
 
-        if (std.mem.eql(u8, fmt, "any")) {
-            try writer.writeAll(@typeName(@This()));
-            try writer.writeAll("(");
-            try std.fmt.formatInt(value.toUnchecked(), 10, .lower, .{}, writer);
-            try writer.writeAll(")");
-        } else {
-            try std.fmt.formatInt(value.toUnchecked(), 10, .lower, .{
-                .width = 2,
-                .fill = '0',
-                .alignment = .right,
-            }, writer);
+        // HACK: any is consumed, and I want to map "" to default
+        if (std.mem.eql(u8, fmt, "a")) {
+            return writer.print("{s}({d})", .{ @typeName(@This()), day_of_month.toUnchecked() });
         }
+
+        // We cannot check validity as we don't have a month or year
+        try date_fmt.formatInt(day_of_month.toUnchecked(), .{ .min_length = 2 }, writer);
     }
 };
 
@@ -1500,7 +1449,11 @@ pub const DayOfWeek = enum(u3) {
     }
 
     pub fn toOrdinal(day: DayOfWeek) u3 {
-        return @intFromEnum(day) - 1;
+        return day.to() - 1;
+    }
+
+    pub fn to(day: DayOfWeek) u3 {
+        return @intFromEnum(day);
     }
 
     // FIXME: Make this work with negatives too
@@ -1546,6 +1499,27 @@ pub const DayOfWeek = enum(u3) {
     pub fn isAfter(day: DayOfWeek, reference: DayOfWeek) bool {
         return @intFromEnum(reference) < @intFromEnum(day);
     }
+
+    pub fn format(day_of_week: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = options;
+
+        // HACK: any is consumed, and I want to map "" to default
+        if (std.mem.eql(u8, fmt, "a")) {
+            return writer.print("{s}({d})", .{ @typeName(@This()), day_of_week.to() });
+        }
+
+        // d => number
+        if (std.mem.eql(u8, fmt, "d")) {
+            return date_fmt.formatInt(day_of_week.to(), .{ .min_length = 1 }, writer);
+        }
+
+        // s => short
+        if (std.mem.eql(u8, fmt, "s")) {
+            return writer.writeAll(@tagName(day_of_week)[0..3]);
+        }
+
+        return writer.writeAll(@tagName(day_of_week));
+    }
 };
 
 pub const Hour = enum(u5) {
@@ -1583,21 +1557,19 @@ pub const Hour = enum(u5) {
         return hour.toUnchecked() < 24;
     }
 
-    pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(hour: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
 
-        if (std.mem.eql(u8, fmt, "any")) {
-            try writer.writeAll(@typeName(@This()));
-            try writer.writeAll("(");
-            try std.fmt.formatInt(value.to(), 10, .lower, .{}, writer);
-            try writer.writeAll(")");
-        } else {
-            try std.fmt.formatInt(value.to(), 10, .lower, .{
-                .width = 2,
-                .fill = '0',
-                .alignment = .right,
-            }, writer);
+        // HACK: any is consumed, and I want to map "" to default
+        if (std.mem.eql(u8, fmt, "a")) {
+            return writer.print("{s}({d})", .{ @typeName(@This()), hour.toUnchecked() });
         }
+
+        if (!hour.isValid()) {
+            return writer.print("Invalid Hour ({d})", .{hour.toUnchecked()});
+        }
+
+        try date_fmt.formatInt(hour.to(), .{ .min_length = 2 }, writer);
     }
 };
 
@@ -1632,21 +1604,19 @@ pub const Minute = enum(u6) {
         return minute.toUnchecked() < 60;
     }
 
-    pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(minute: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
 
-        if (std.mem.eql(u8, fmt, "any")) {
-            try writer.writeAll(@typeName(@This()));
-            try writer.writeAll("(");
-            try std.fmt.formatInt(value.to(), 10, .lower, .{}, writer);
-            try writer.writeAll(")");
-        } else {
-            try std.fmt.formatInt(value.to(), 10, .lower, .{
-                .width = 2,
-                .fill = '0',
-                .alignment = .right,
-            }, writer);
+        // HACK: any is consumed, and I want to map "" to default
+        if (std.mem.eql(u8, fmt, "a")) {
+            return writer.print("{s}({d})", .{ @typeName(@This()), minute.toUnchecked() });
         }
+
+        if (!minute.isValid()) {
+            return writer.print("Invalid minute ({d})", .{minute.toUnchecked()});
+        }
+
+        try date_fmt.formatInt(minute.to(), .{ .min_length = 2 }, writer);
     }
 };
 
@@ -1682,21 +1652,19 @@ pub const Second = enum(u6) {
         return second.toUnchecked() < 60;
     }
 
-    pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(second: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
 
-        if (std.mem.eql(u8, fmt, "any")) {
-            try writer.writeAll(@typeName(@This()));
-            try writer.writeAll("(");
-            try std.fmt.formatInt(value.to(), 10, .lower, .{}, writer);
-            try writer.writeAll(")");
-        } else {
-            try std.fmt.formatInt(value.to(), 10, .lower, .{
-                .width = 2,
-                .fill = '0',
-                .alignment = .right,
-            }, writer);
+        // HACK: any is consumed, and I want to map "" to default
+        if (std.mem.eql(u8, fmt, "a")) {
+            return writer.print("{s}({d})", .{ @typeName(@This()), second.toUnchecked() });
         }
+
+        if (!second.isValid()) {
+            return writer.print("Invalid Second ({d})", .{second.toUnchecked()});
+        }
+
+        try date_fmt.formatInt(second.to(), .{ .min_length = 2 }, writer);
     }
 };
 
@@ -2479,20 +2447,33 @@ pub fn isValid(date: DateTime) bool {
 pub fn format(date: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     _ = options;
 
-    if (!date.isValid()) {
-        return std.fmt.format(writer, "Invalid Date ({d})", .{date.timestamp});
-    }
-
-    if (std.mem.eql(u8, fmt, "d")) {
-        return std.fmt.format(
-            writer,
+    // HACK: any is consumed, and I want to map "" to default
+    if (std.mem.eql(u8, fmt, "a")) {
+        return writer.print(
             "{s}({d})",
             .{ @typeName(@This()), date.timestamp },
         );
     }
 
-    try std.fmt.format(
-        writer,
+    if (!date.isValid()) {
+        return std.fmt.format(writer, "Invalid Date ({d})", .{date.timestamp});
+    }
+
+    // h => human readable
+    if (std.mem.eql(u8, fmt, "h")) {
+        // Mon Jan 1 2024 00:00
+        return writer.print("{s} {s} {d} {d} {d}:{d}", .{
+            date.getDayOfWeek(),
+            date.getMonth(),
+            date.getDayOfMonth(),
+            date.getYear(),
+            date.getHour(),
+            date.getMinute(),
+        });
+    }
+
+    // Default [dateX]T[timeX]
+    try writer.print(
         "{}-{}-{}T{}:{}:{}",
         .{
             date.getYear(),
@@ -2518,6 +2499,7 @@ test format {
 const DateTime = @This();
 
 const std = @import("std");
+const date_fmt = @import("date_fmt.zig");
 const time = std.time;
 const s_per_week = time.s_per_week;
 const s_per_day = time.s_per_day;

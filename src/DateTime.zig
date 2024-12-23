@@ -2242,7 +2242,8 @@ test addYears {
 }
 
 pub fn addMonthsChecked(date: DateTime, months: i40) !DateTime {
-    assert(date.isValid());
+    if (!date.isValid()) return error.UnrepresentableDate;
+
     const day_of_month = date.getDayOfMonth();
 
     // We want divTrunc, as -1 month does not mean go back 1 year

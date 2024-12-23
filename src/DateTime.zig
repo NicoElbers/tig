@@ -970,6 +970,36 @@ pub const Week = enum(i45) {
         try expectEqual(Week.from(2), Week.fromDay(Day.from(15)));
     }
 
+    pub fn toMonday(week: Week) Day {
+        const week_num: i48 = week.to();
+        const day_num = week_num * 7;
+        const day_num_unshifted = day_num - DayOfWeek.Saturday.toOrdinal();
+        return Day.from(day_num_unshifted);
+    }
+
+    test toMonday {
+        @disableInstrumentation();
+
+        const expectEqual = std.testing.expectEqual;
+
+        const tst = struct {
+            pub fn tst(d: i48, w: i45) !void {
+                const day = Day.from(d);
+                const week = Week.from(w);
+
+                try expectEqual(day, week.toMonday());
+            }
+        }.tst;
+
+        try tst(-5, 0);
+        try tst(2, 1);
+        try tst(9, 2);
+        try tst(16, 3);
+        try tst(23, 4);
+        try tst(30, 5);
+        try tst(37, 6);
+    }
+
     pub fn to(week: Week) i45 {
         assert(week.isValid());
 
@@ -1376,6 +1406,7 @@ pub const DayOfMonth = enum(u5) {
     }
 };
 
+// FIXME: Reduce the usage of @intFromEnum
 pub const DayOfWeek = enum(u3) {
     // zig fmt: off
     Monday    = 1,
@@ -1386,6 +1417,24 @@ pub const DayOfWeek = enum(u3) {
     Saturday  = 6,
     Sunday    = 7,
     // zig fmt: on
+
+    pub fn fromDay(day: Day) DayOfWeek {
+        const week = Week.fromDay(day);
+        const monday = week.toMonday();
+
+        const dow: u3 = @intCast(day.to() - monday.to());
+        return DayOfWeek.fromOrdinal(dow);
+    }
+
+    test fromDay {
+        @disableInstrumentation();
+
+        const expectEqual = std.testing.expectEqual;
+
+        try expectEqual(.Friday, DayOfWeek.fromDay(Day.from(-1)));
+        try expectEqual(.Saturday, DayOfWeek.fromDay(Day.from(0)));
+        try expectEqual(.Sunday, DayOfWeek.fromDay(Day.from(1)));
+    }
 
     pub fn fromOrdinal(day: u3) DayOfWeek {
         return @enumFromInt(day + 1);
@@ -1864,6 +1913,18 @@ test getWeek {
 pub fn getWeekOfYear(date: DateTime) WeekOfYear {
     assert(date.isValid());
     return WeekOfYear.fromWeek(date.getWeek());
+}
+
+test getWeekOfYear {
+    @disableInstrumentation();
+
+    const date = DateTime.build(.{ .year = -35, .day_of_month = 2 });
+    std.debug.print("first: {}; fweek: {}\n", .{ date.getYear().firstDay(), date.getYear().firstWeek() });
+    _ = date.getWeekOfYear();
+}
+
+pub fn getDayOfWeek(date: DateTime) DayOfWeek {
+    return DayOfWeek.fromDay(date.getDay());
 }
 
 pub fn getDay(date: DateTime) Day {

@@ -2449,6 +2449,10 @@ pub fn addSeconds(date: DateTime, seconds: i64) DateTime {
     };
 }
 
+pub fn isAfter(day: DateTime, reference: DateTime) bool {
+    return reference.timestamp > day.timestamp;
+}
+
 pub fn isValid(date: DateTime) bool {
     return date.timestamp >= date_min.timestamp and
         date.timestamp <= date_max.timestamp;

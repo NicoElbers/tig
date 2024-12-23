@@ -5,7 +5,15 @@ fn logFuzz(comptime fmt: []const u8, args: anytype) void {
 }
 
 fn getDate(r: Random) DateTime {
-    const date: DateTime = .{ .timestamp = r.int(i64) };
+    // 50/50 valid/invalid
+    const timestamp = switch (r.int(u2)) {
+        0 => r.intRangeAtMostBiased(i64, DateTime.date_max.timestamp, std.math.maxInt(i64)),
+        1 => r.intRangeAtMostBiased(i64, std.math.minInt(i64), DateTime.date_min.timestamp),
+        else => getValidDate(r).timestamp,
+    };
+
+    const date: DateTime = .{ .timestamp = timestamp };
+
     logFuzz("Date: {d}", .{date});
     return date;
 }
@@ -44,7 +52,7 @@ pub fn fuzzYears(input: []const u8) !void {
     var prng = std.Random.DefaultPrng.init(seed);
     const random = prng.random();
 
-    const date = getDate(random);
+    const date = getValidDate(random);
 
     {
         const max_year = Year.max.to() -| date.getYear().to();
@@ -76,7 +84,7 @@ pub fn fuzzSetYears(input: []const u8) !void {
     var prng = std.Random.DefaultPrng.init(seed);
     const random = prng.random();
 
-    const date = getDate(random);
+    const date = getValidDate(random);
 
     const set_target = random.intRangeAtMostBiased(i40, Year.min.to(), Year.max.to());
     const set_year = try Year.fromChecked(set_target);
@@ -217,9 +225,14 @@ pub fn fuzzValidate(input: []const u8) !void {
     var prng = std.Random.DefaultPrng.init(seed);
     const random = prng.random();
 
-    const date = getDate(random);
+    { // valid_date.isValid works on any date
+        const date = getDate(random);
+        _ = date.isValid();
+    }
 
-    _ = date.isValid();
+    // All the getters assume a valid date
+    const date = getValidDate(random);
+
     _ = date.getYear().isValid();
     _ = date.getDayOfYear().isValid(date.getYear().isLeapYear());
     _ = date.getWeekOfYear().isValid(date.getYear());

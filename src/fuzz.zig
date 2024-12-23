@@ -198,22 +198,35 @@ pub fn fuzzFormat(input: []const u8) !void {
 
     const year = getYear(random);
     try year.format("", .{}, nullWriter);
-    try year.format("any", .{}, nullWriter);
+    try year.format("a", .{}, nullWriter);
 
     const date = getDate(random);
 
     try date.format("", .{}, nullWriter);
-    try date.format("any", .{}, nullWriter);
+    try date.format("a", .{}, nullWriter);
 
     if (!date.isValid()) return;
 
-    try date.getYear().format("any", .{}, nullWriter);
-    try date.getMonth().format("any", .{}, nullWriter);
-    try date.getDayOfMonth().format("any", .{}, nullWriter);
-    try date.getDayOfYear().format("any", .{}, nullWriter);
-    try date.getHour().format("any", .{}, nullWriter);
-    try date.getMinute().format("any", .{}, nullWriter);
-    try date.getSecond().format("any", .{}, nullWriter);
+    try date.getYear().format("", .{}, nullWriter);
+    try date.getYear().format("a", .{}, nullWriter);
+
+    try date.getMonth().format("", .{}, nullWriter);
+    try date.getMonth().format("a", .{}, nullWriter);
+
+    try date.getDayOfMonth().format("", .{}, nullWriter);
+    try date.getDayOfMonth().format("a", .{}, nullWriter);
+
+    try date.getDayOfYear().format("", .{}, nullWriter);
+    try date.getDayOfYear().format("a", .{}, nullWriter);
+
+    try date.getHour().format("", .{}, nullWriter);
+    try date.getHour().format("a", .{}, nullWriter);
+
+    try date.getMinute().format("", .{}, nullWriter);
+    try date.getMinute().format("a", .{}, nullWriter);
+
+    try date.getSecond().format("", .{}, nullWriter);
+    try date.getSecond().format("a", .{}, nullWriter);
 }
 
 pub fn fuzzValidate(input: []const u8) !void {

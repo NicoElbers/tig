@@ -476,7 +476,8 @@ pub const Year = enum(i40) {
 
         const days_moved: i40 = year.to() +
             year.leapYearsSinceGregorianEpoch() -
-            @intFromBool(year.isLeapYear()) + // Jan 1 is always before feb 29
+            // Correct for the fact year 0 is a leap year
+            @intFromBool(year.isLeapYear() and year.to() >= 0) +
             DayOfWeek.Saturday.toOrdinal(); // Start on saturday :(
 
         const week_days_moved: u3 = @intCast(@mod(days_moved, 7));
@@ -499,10 +500,11 @@ pub const Year = enum(i40) {
         try expectEqual(.Saturday, Year.from(2000).firstDay());
         try expectEqual(.Monday, Year.from(2024).firstDay());
 
-        // These are honestly just guesses, they are primarily tested so that
-        // I am sure the function won't crash
-        // try expectEqual(.Friday, min.firstDayOfWeekOfYear());
-        // try expectEqual(.Sunday, max.firstDayOfWeekOfYear());
+        try expectEqual(.Friday, Year.from(-1).firstDay());
+
+        // From fuzzer
+        try expectEqual(.Friday, Year.from(-35).firstDay());
+        try expectEqual(.Wednesday, Year.from(-36).firstDay());
     }
 
     pub fn weeksInYear(year: Year) u6 {

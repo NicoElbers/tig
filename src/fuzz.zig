@@ -1,6 +1,12 @@
+fn logFuzz(comptime fmt: []const u8, args: anytype) void {
+    if (!@import("builtin").fuzz) return;
+
+    std.debug.print(fmt ++ "\n", args);
+}
+
 fn getDate(r: Random) DateTime {
     const date: DateTime = .{ .timestamp = r.int(i64) };
-    std.debug.print("Date: {d}\n", .{date});
+    logFuzz("Date: {d}", .{date});
     return date;
 }
 
@@ -10,19 +16,19 @@ fn getValidDate(r: Random) DateTime {
         DateTime.date_min.timestamp,
         DateTime.date_max.timestamp,
     ));
-    std.debug.print("Date: {d}\n", .{date});
+    logFuzz("Date: {d}", .{date});
     return date;
 }
 
 fn getYear(r: Random) Year {
     const year: Year = @enumFromInt(r.int(i64));
-    std.debug.print("Year: {d}\n", .{year});
+    logFuzz("Year: {d}", .{year});
     return year;
 }
 
 fn getValidYear(r: Random) Year {
     const year = Year.from(r.intRangeAtMostBiased(i40, Year.min.to(), Year.max.to()));
-    std.debug.print("Year: {d}\n", .{year});
+    logFuzz("Year: {d}", .{year});
     return year;
 }
 

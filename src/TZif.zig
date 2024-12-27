@@ -173,6 +173,7 @@ pub const TZifDataBlock = struct {
     local_time_type_records: []const LocalTimeRecord,
     timezone_designation: [:0]const u8,
     leap_second_records: []const LeapSecondRecord,
+    leap_second_expiration: ?LeapSecondRecord,
     std_wall_indicators: ?[]const StdWallIndicator,
     ut_local_indicators: ?[]const UtLocalIndicator,
 
@@ -306,7 +307,7 @@ pub const TZifDataBlock = struct {
         };
         errdefer alloc.free(timezone_designation);
 
-        const leap_second_records = blk: {
+        const leap_second_records, const leap_second_expiration = blk: {
             var leap_second_records = try alloc.alloc(LeapSecondRecord, header.leapcnt);
             errdefer alloc.free(leap_second_records);
 
@@ -326,7 +327,21 @@ pub const TZifDataBlock = struct {
                 };
             }
 
-            break :blk leap_second_records;
+            // the correction value of the last two records MAY be the same, with
+            // the occurrence of last record indicating the expiration time of the
+            // leap-second table.
+            if (header.leapcnt < 2) break :blk .{ leap_second_records, null };
+
+            const last_rec = leap_second_records[header.leapcnt - 1];
+            const second_last_rec = leap_second_records[header.leapcnt - 2];
+
+            if (last_rec.correction != second_last_rec.correction)
+                break :blk .{ leap_second_records, null };
+
+            break :blk .{
+                leap_second_records[0 .. leap_second_records.len - 1], // list
+                leap_second_records[leap_second_records.len - 1], // expiry
+            };
         };
         errdefer alloc.free(leap_second_records);
 
@@ -388,6 +403,7 @@ pub const TZifDataBlock = struct {
             .local_time_type_records = local_time_type_records,
             .timezone_designation = timezone_designation,
             .leap_second_records = leap_second_records,
+            .leap_second_expiration = leap_second_expiration,
             .std_wall_indicators = std_wall_indicators,
             .ut_local_indicators = ut_local_indicators,
         };

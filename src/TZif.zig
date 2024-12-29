@@ -1,5 +1,6 @@
 header: TZifHeader,
 data_block: TZifDataBlock,
+footer: ?TZifFooter,
 
 /// In this parser we only distinguish between version 1 and 2+, as versions
 /// 3 and 4 are strictly extensions to version 2.
@@ -411,11 +412,39 @@ pub const TZifDataBlock = struct {
 };
 
 const potential_paths = [_][]const u8{
+pub const TZifFooter = struct {
+    tz_string: TZString,
+
+    pub const Error = error{
+        InvalidFooter,
+    } || Allocator.Error || TZString.Error;
+
+    pub fn deinit(self: TZifFooter, alloc: Allocator) void {
+        self.tz_string.deinit(alloc);
+    }
+
+    pub fn parse(alloc: Allocator, r: AnyReader) Error!TZifFooter {
+        {
+            const byte = r.readByte() catch return Error.InvalidFooter;
+            if (byte != '\n') return Error.InvalidFooter;
+        }
+
+        const tz_string = try TZString.parse(alloc, r);
+
+        return .{
+            .tz_string = tz_string,
+        };
+    }
+};
+
     "/etc/localtime",
 };
 
 pub fn deinit(self: TZif, alloc: Allocator) void {
     self.data_block.deinit(alloc);
+    if (self.footer) |f| {
+        f.deinit(alloc);
+    }
 }
 
 /// Do a best attempt at finding the systems time zone information file.
@@ -440,7 +469,7 @@ pub fn findTzif(alloc: Allocator) !?TZif {
 
 /// A tzif parser based on RFC 9636, modified slightly to be more permissive
 /// to bad input. Any out of spec modifications will result in a logged warning.
-pub fn parseTzif(alloc: Allocator, r: AnyReader) ?TZif {
+pub fn parseTzif(alloc: Allocator, r: AnyReader) !?TZif {
     const header = blk: {
         var h1 = TZifHeader.parse(r) orelse return null;
 
@@ -457,17 +486,27 @@ pub fn parseTzif(alloc: Allocator, r: AnyReader) ?TZif {
 
         const h2 = TZifHeader.parse(r) orelse return null;
 
-        // TODO: Handle this case?
-        if (h2.version != .@"2+") unreachable;
+        if (h2.version != .@"2+")
+            log.warn("Second header does not indicate v2+, this is against RFC 9636", .{});
 
         break :blk h2;
     };
 
     const data_block = TZifDataBlock.parse(alloc, r, header) catch return null;
+    errdefer data_block.deinit(alloc);
+
+    if (header.version == .@"1") return .{
+        .header = header,
+        .data_block = data_block,
+        .footer = null,
+    };
+
+    const footer = try TZifFooter.parse(alloc, r);
 
     return .{
         .header = header,
         .data_block = data_block,
+        .footer = footer,
     };
 }
 
@@ -486,3 +525,4 @@ const log = std.log.scoped(.tzif);
 const assert = std.debug.assert;
 
 const TZif = @This();
+const TZString = @import("TZString.zig");

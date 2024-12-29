@@ -500,7 +500,7 @@ pub const Year = enum(i40) {
             DayOfWeek.Saturday.toOrdinal(); // Start on saturday :(
 
         const week_days_moved: u3 = @intCast(@mod(days_moved, 7));
-        return DayOfWeek.fromOrdinal(week_days_moved);
+        return DayOfWeek.from0(week_days_moved);
     }
 
     test firstDay {
@@ -1467,12 +1467,16 @@ pub const DayOfWeek = enum(u3) {
     Sunday    = 7,
     // zig fmt: on
 
+    pub const Error = error{
+        UnrepresentableDay,
+    };
+
     pub fn fromDay(day: Day) DayOfWeek {
         const week = Week.fromDay(day);
         const monday = week.toMonday();
 
         const dow: u3 = @intCast(day.to() - monday.to());
-        return DayOfWeek.fromOrdinal(dow);
+        return DayOfWeek.from0(dow);
     }
 
     test fromDay {
@@ -1485,7 +1489,13 @@ pub const DayOfWeek = enum(u3) {
         try expectEqual(.Sunday, DayOfWeek.fromDay(Day.from(1)));
     }
 
-    pub fn fromOrdinal(day: u3) DayOfWeek {
+    pub fn from0Checked(day: u3) Error!DayOfWeek {
+        if (day >= 7) return Error.UnrepresentableDay;
+
+        return DayOfWeek.from0(day);
+    }
+
+    pub fn from0(day: u3) DayOfWeek {
         return @enumFromInt(day + 1);
     }
 

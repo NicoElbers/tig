@@ -411,7 +411,6 @@ pub const TZifDataBlock = struct {
     }
 };
 
-const potential_paths = [_][]const u8{
 pub const TZifFooter = struct {
     tz_string: TZString,
 
@@ -437,7 +436,9 @@ pub const TZifFooter = struct {
     }
 };
 
+const potential_tzif_paths = [_][]const u8{
     "/etc/localtime",
+    "/etc/timezone",
 };
 
 pub fn deinit(self: TZif, alloc: Allocator) void {
@@ -456,7 +457,8 @@ pub fn findTzif(alloc: Allocator) !?TZif {
         else => {},
     }
 
-    for (potential_paths) |path| {
+    // Try hardcoded paths
+    for (potential_tzif_paths) |path| {
         const file = fs.openFileAbsolute(path, .{}) catch continue;
 
         const tzif = parseTzif(alloc, file.reader().any());

@@ -2459,6 +2459,10 @@ pub fn addSeconds(date: DateTime, seconds: i64) DateTime {
     };
 }
 
+pub fn toUnixTimestamp(date: DateTime) i64 {
+    return date.timestamp - DateTime.unixEpoch.timestamp;
+}
+
 pub fn isValid(date: DateTime) bool {
     return date.timestamp >= date_min.timestamp and
         date.timestamp <= date_max.timestamp;

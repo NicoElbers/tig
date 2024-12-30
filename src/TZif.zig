@@ -174,7 +174,7 @@ pub const TZifDataBlock = struct {
     local_time_type_records: []const LocalTimeRecord,
     timezone_designation: [:0]const u8,
     leap_second_records: []const LeapSecondRecord,
-    leap_second_expiration: ?LeapSecondRecord,
+    leap_second_expiration: ?i64,
     std_wall_indicators: ?[]const StdWallIndicator,
     ut_local_indicators: ?[]const UtLocalIndicator,
 
@@ -341,7 +341,7 @@ pub const TZifDataBlock = struct {
 
             break :blk .{
                 leap_second_records[0 .. leap_second_records.len - 1], // list
-                leap_second_records[leap_second_records.len - 1], // expiry
+                leap_second_records[leap_second_records.len - 1].occurrence, // expiry
             };
         };
         errdefer alloc.free(leap_second_records);
@@ -461,9 +461,9 @@ pub fn findTzif(alloc: Allocator) !?TZif {
     for (potential_tzif_paths) |path| {
         const file = fs.openFileAbsolute(path, .{}) catch continue;
 
-        const tzif = parseTzif(alloc, file.reader().any());
+        const tzif = try parseTzif(alloc, file.reader().any());
 
-        if (tzif != null) return tzif;
+        if (tzif) |t| return t;
     }
 
     return null;

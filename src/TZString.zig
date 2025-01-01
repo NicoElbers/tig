@@ -22,6 +22,62 @@ pub const Rule = struct {
     pub const DateOffset = struct {
         date: Date,
         offset: Offset,
+
+        /// Returns a type safe representation that notably does not include
+        /// negative hours
+        pub fn resolve(do: DateOffset, year: Year) struct {
+            doy: DayOfYear,
+            hour: Hour,
+            minute: Minute,
+            second: Second,
+        } {
+            const offset = do.offset;
+
+            const start_doy_num = do.date.toDayOfYear(year).to();
+            const days_in_year = year.getDaysInYear();
+
+            const day_offset: i10, const hour_resolved: u5 = res: {
+                const days_guess = @divFloor(offset.hour, 24);
+                const hour_guess = @mod(offset.hour, 24);
+
+                // If we have a negative amount of hours, we are in the previous
+                // day, and the new hour is 24 - old
+                //
+                // For a specific example, -1 hours, goes to the previous day 23 hours
+                break :res if (hour_guess < 0)
+                    .{ days_guess - 1, @intCast(24 + hour_guess) }
+                else
+                    .{ days_guess, @intCast(hour_guess) };
+            };
+
+            const resolved_doy: u9 = @intCast(@mod(days_in_year + start_doy_num + day_offset, days_in_year));
+
+            return .{
+                .doy = DayOfYear.from(resolved_doy, year.isLeapYear()),
+                .hour = Hour.from(hour_resolved),
+                .minute = Minute.from(offset.minute),
+                .second = Second.from(offset.second),
+            };
+        }
+
+        pub fn order(a: DateOffset, b: DateOffset, year: Year) enum { lt, eq, gt } {
+            const a_resolved = a.resolve(year);
+            const b_resolved = b.resolve(year);
+
+            if (a_resolved.doy.to() < b_resolved.doy.to()) return .lt;
+            if (a_resolved.doy.to() > b_resolved.doy.to()) return .gt;
+
+            if (a_resolved.hour.to() < b_resolved.hour.to()) return .lt;
+            if (a_resolved.hour.to() > b_resolved.hour.to()) return .gt;
+
+            if (a_resolved.minute.to() < b_resolved.minute.to()) return .lt;
+            if (a_resolved.minute.to() > b_resolved.minute.to()) return .gt;
+
+            if (a_resolved.second.to() < b_resolved.second.to()) return .lt;
+            if (a_resolved.second.to() > b_resolved.second.to()) return .gt;
+
+            return .eq;
+        }
     };
 
     pub const OccurenceInMonth = struct {
@@ -31,9 +87,58 @@ pub const Rule = struct {
     };
 
     pub const Date = union(enum) {
-        julian: u16,
-        zero_julian: u16,
+        /// The Julian day n (1 <= n <= 365). Leap days shall not be counted.
+        /// That is, in all years-including leap years-February 28 is day 59 and
+        /// March 1 is day 60. It is impossible to refer explicitly to the
+        /// occasional February 29.
+        julian: u9,
+        /// The zero-based Julian day (0 <= n <= 365). Leap days shall be counted,
+        /// and it is possible to refer to February 29
+        zero_julian: u9,
+        /// The d'th day (0 <= d <= 6) of week n of month m of the year
+        /// (1 <= n <= 5, 1 <= m <= 12, where week 5 means "the last d day
+        /// in month m" which may occur in either the fourth or the fifth week).
+        /// Week 1 is the first week in which the d'th day occurs.
+        /// Day zero is Sunday.
+        ///
+        /// I read this as the nth occurance of day d in month m
         occurenceInMonth: OccurenceInMonth,
+
+        pub fn toDayOfYear(self: Date, year: Year) DayOfYear {
+            return switch (self) {
+                .julian => |n| {
+                    const is_leap_year = year.isLeapYear();
+
+                    return if (is_leap_year and n >= 60)
+                        DayOfYear.from(n + 1, true)
+                    else
+                        DayOfYear.from(n, false);
+                },
+
+                .zero_julian => |n| DayOfYear.from0(n, false),
+                .occurenceInMonth => |o| {
+                    const is_leap_year = year.isLeapYear();
+
+                    const first_day = year.firstDay();
+                    const first_of_month = o.month.ordinalNumberOfFirstOfMonth(is_leap_year);
+                    const first_day_of_month = first_day.dowAfterNDays(first_of_month);
+
+                    const days_till_next_occurance = 7 +
+                        @as(u9, first_day_of_month.toOrdinal()) +
+                        @as(u9, o.day_of_week.toOrdinal());
+
+                    const days_till_first_occurance = @mod(days_till_next_occurance, 7);
+
+                    const days_till_relevant_occurance = (o.occurence - 1) * 7 +
+                        days_till_first_occurance;
+
+                    // TODO: remove this assert later, but it's useful for debugging
+                    assert(days_till_relevant_occurance < o.month.daysInMonth(is_leap_year));
+
+                    return DayOfYear.from0(first_of_month + days_till_relevant_occurance, is_leap_year);
+                },
+            };
+        }
     };
 };
 
@@ -41,6 +146,12 @@ pub const Offset = struct {
     hour: i9,
     second: u6 = 0,
     minute: u6 = 0,
+
+    pub fn toSecond(o: Offset) i64 {
+        return @as(i64, o.hour) * std.time.s_per_hour +
+            @as(i64, o.minute) * std.time.s_per_min +
+            @as(i64, o.second);
+    }
 };
 
 pub fn deinit(tz: TZString, alloc: Allocator) void {
@@ -577,7 +688,8 @@ pub fn parse(alloc: Allocator, r: AnyReader) Error!TZString {
                     const n = try std.fmt.parseInt(u3, scratch.items, 10);
                     scratch.clearRetainingCapacity();
 
-                    const day = try DayOfWeek.from0Checked(n);
+                    // We have to map day 0 to Sunday according to spec :(
+                    const day = (try DayOfWeek.from0Checked(n)).prev();
 
                     const start: Rule.DateOffset = .{
                         .date = .{ .occurenceInMonth = .{
@@ -839,7 +951,8 @@ pub fn parse(alloc: Allocator, r: AnyReader) Error!TZString {
                     const n = try std.fmt.parseInt(u3, scratch.items, 10);
                     scratch.clearRetainingCapacity();
 
-                    const day = try DayOfWeek.from0Checked(n);
+                    // We have to map day 0 to Sunday according to spec :(
+                    const day = (try DayOfWeek.from0Checked(n)).prev();
 
                     const end: Rule.DateOffset = .{
                         .date = .{ .occurenceInMonth = .{
@@ -1064,7 +1177,7 @@ test parse {
                 .date = .{ .occurenceInMonth = .{
                     .month = .March,
                     .occurence = 5,
-                    .day_of_week = DayOfWeek.from0(0),
+                    .day_of_week = DayOfWeek.from0(0).prev(),
                 } },
                 .offset = .{ .hour = 2 },
             },
@@ -1072,7 +1185,7 @@ test parse {
                 .date = .{ .occurenceInMonth = .{
                     .month = .October,
                     .occurence = 5,
-                    .day_of_week = DayOfWeek.from0(0),
+                    .day_of_week = DayOfWeek.from0(0).prev(),
                 } },
                 .offset = .{ .hour = 2 },
             },
@@ -1091,7 +1204,7 @@ test parse {
                 .date = .{ .occurenceInMonth = .{
                     .month = .March,
                     .occurence = 5,
-                    .day_of_week = DayOfWeek.from0(0),
+                    .day_of_week = DayOfWeek.from0(0).prev(),
                 } },
                 .offset = .{ .hour = 2, .minute = 4, .second = 20 },
             },
@@ -1099,7 +1212,7 @@ test parse {
                 .date = .{ .occurenceInMonth = .{
                     .month = .October,
                     .occurence = 5,
-                    .day_of_week = DayOfWeek.from0(0),
+                    .day_of_week = DayOfWeek.from0(0).prev(),
                 } },
                 .offset = .{ .hour = 3 },
             },
@@ -1149,10 +1262,18 @@ test parse {
 }
 
 const DateTime = @import("DateTime.zig");
+const Year = DateTime.Year;
 const MonthOfYear = DateTime.MonthOfYear;
+const DayOfYear = DateTime.DayOfYear;
 const DayOfWeek = DateTime.DayOfWeek;
+const Hour = DateTime.Hour;
+const Minute = DateTime.Minute;
+const Second = DateTime.Second;
 const TZString = @This();
 
 const std = @import("std");
+
+const assert = std.debug.assert;
+
 const AnyReader = std.io.AnyReader;
 const Allocator = std.mem.Allocator;

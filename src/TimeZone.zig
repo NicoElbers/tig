@@ -8,6 +8,7 @@
 data: union(enum) {
     tzif: TZif,
     tz_string: TZString,
+    windows: void,
 },
 
 pub const Localization = struct {
@@ -16,19 +17,44 @@ pub const Localization = struct {
     is_dst: bool,
 };
 
+fn findTimeZone(alloc: Allocator) !TimeZone {
+    if (@import("builtin").os.tag == .windows) {
+        return .windows;
+    }
+
+    if (try TZif.findTzif(alloc)) |tzif| {
+        return .{ .tzif = tzif };
+    }
+
+    const env_map = try std.process.getEnvMap(alloc);
+    defer env_map.deinit();
+
+    // According to Posix, systems should have the TZ env var, however
+    // I can't find it on my machine. I'll have the check anyway
+    if (env_map.get("TZ")) |tz| {
+        const fbs = std.io.fixedBufferStream(tz);
+        const reader = fbs.reader().any();
+        const tz_string = try TZString.parse(alloc, reader);
+
+        return .{ .tz_string = tz_string };
+    }
+
+    @panic("TODO: Deal with the case where we can't resolve the timezone");
+}
+
 pub fn localize(timezone: TimeZone, date: DateTime) DateTime {
     const data: Localization = switch (timezone.data) {
         .tzif => |tzif| tzifLocalization(tzif, date),
-        else => unreachable,
+        .tz_string => |tz_str| tzStringLocalization(tz_str, date),
+        inline else => @panic(std.fmt.comptimePrint("TODO: implement localize for this", .{})),
     };
 
     return date.addSeconds(data.base_offset + data.leap_second_offset);
 }
 
-pub fn localFormat(timezone: TimeZone, date: DateTime, writer: AnyWriter) !void {
-    _ = timezone;
-    _ = date;
-    _ = writer;
+pub fn localFormat(writer: anytype, timezone: TimeZone, date: DateTime) !void {
+    const local = timezone.localize(date);
+    try local.format("{}", .{}, writer);
 }
 
 fn tzifLocalization(tzif: TZif, date: DateTime) Localization {
@@ -48,11 +74,20 @@ fn tzifLocalization(tzif: TZif, date: DateTime) Localization {
         break :blk null;
     };
 
-    const base_offset: i64 = blk: {
-        if (relevant_transition) |trans|
-            break :blk data.local_time_type_records[trans.idx].offset;
+    const base_offset: i64, const is_dst = blk: {
+        if (relevant_transition) |trans| {
+            const record = data.local_time_type_records[trans.idx];
+            break :blk .{ record.offset, record.daylight_savings_time };
+        }
 
-        unreachable;
+        if (tzif.footer) |footer| {
+            const tz_loc = tzStringLocalization(footer.tz_string, date);
+
+            break :blk .{ tz_loc.base_offset, tz_loc.is_dst };
+        }
+
+        // FIXME: deal with the case where we cannot infer an offset
+        @panic("TODO: deal with the case where we cannot infer an offset");
     };
 
     const leap_second_offset: i64 = blk: {
@@ -74,18 +109,119 @@ fn tzifLocalization(tzif: TZif, date: DateTime) Localization {
         break :blk sum;
     };
 
-    const is_dst: bool = blk: {
-        if (relevant_transition) |trans|
-            break :blk data.local_time_type_records[trans.idx].daylight_savings_time;
-
-        unreachable;
-    };
-
     return .{
         .base_offset = base_offset,
         .leap_second_offset = leap_second_offset,
         .is_dst = is_dst,
     };
+}
+
+fn tzStringLocalization(tz_string: TZString, date: DateTime) Localization {
+    if (tz_string.rule == null or tz_string.daylight_savings_time == null) return .{
+        .base_offset = tz_string.standard.offset.toSecond(),
+        .leap_second_offset = 0,
+        .is_dst = false,
+    };
+
+    const Order = enum { lt, eq, gt };
+
+    const year = date.getYear();
+    const doy = date.getDayOfYear();
+    const hour = date.getHour();
+    const minute = date.getMinute();
+    const second = date.getSecond();
+
+    const rule = tz_string.rule.?;
+    const dst = tz_string.daylight_savings_time.?;
+    const standard = tz_string.standard;
+
+    const start = rule.start.resolve(year);
+    const end = rule.end.resolve(year);
+
+    const order_start: Order = blk: {
+        if (doy.to() < start.doy.to()) break :blk .lt;
+        if (doy.to() > start.doy.to()) break :blk .gt;
+
+        if (hour.to() < start.hour.to()) break :blk .lt;
+        if (hour.to() > start.hour.to()) break :blk .gt;
+
+        if (minute.to() < start.minute.to()) break :blk .lt;
+        if (minute.to() > start.minute.to()) break :blk .gt;
+
+        if (second.to() < start.second.to()) break :blk .lt;
+        if (second.to() > start.second.to()) break :blk .gt;
+
+        break :blk .eq;
+    };
+
+    const order_end: Order = blk: {
+        if (doy.to() < end.doy.to()) break :blk .lt;
+        if (doy.to() > end.doy.to()) break :blk .gt;
+
+        if (hour.to() < end.hour.to()) break :blk .lt;
+        if (hour.to() > end.hour.to()) break :blk .gt;
+
+        if (minute.to() < end.minute.to()) break :blk .lt;
+        if (minute.to() > end.minute.to()) break :blk .gt;
+
+        if (second.to() < end.second.to()) break :blk .lt;
+        if (second.to() > end.second.to()) break :blk .gt;
+
+        break :blk .eq;
+    };
+
+    const base_offset, const is_dst = if (rule.end.order(rule.start, year) != .lt)
+        if (order_start != .lt and order_end == .lt)
+            .{ dst.offset, true }
+        else
+            .{ standard.offset, false }
+    else if (order_start != .lt or order_end == .lt)
+        .{ dst.offset, true }
+    else
+        .{ standard.offset, false };
+
+    return .{
+        .base_offset = base_offset.toSecond(),
+        .leap_second_offset = 0,
+        .is_dst = is_dst,
+    };
+}
+
+test tzStringLocalization {
+    const expectEqual = std.testing.expectEqual;
+
+    const tzstring: TZString = .{
+        .standard = .{
+            .name = "STD",
+            .offset = .{ .hour = 0 },
+        },
+        .daylight_savings_time = .{
+            .name = "DST",
+            .offset = .{ .hour = 1 },
+        },
+        .rule = .{
+            .start = .{
+                .date = .{ .julian = 10 },
+                .offset = .{ .hour = 0 },
+            },
+            .end = .{
+                .date = .{ .julian = 20 },
+                .offset = .{ .hour = 0 },
+            },
+        },
+    };
+
+    const jan1 = DateTime.build(.{ .year = 0, .month = .January, .day_of_month = 1 });
+    const jan1_loc: Localization = .{ .base_offset = 0, .leap_second_offset = 0, .is_dst = false };
+    try expectEqual(jan1_loc, tzStringLocalization(tzstring, jan1));
+
+    const jan10 = DateTime.build(.{ .year = 0, .month = .January, .day_of_month = 10 });
+    const jan10_loc: Localization = .{ .base_offset = 3600, .leap_second_offset = 0, .is_dst = true };
+    try expectEqual(jan10_loc, tzStringLocalization(tzstring, jan10));
+
+    const jan20 = DateTime.build(.{ .year = 0, .month = .January, .day_of_month = 20 });
+    const jan20_loc: Localization = .{ .base_offset = 0, .leap_second_offset = 0, .is_dst = false };
+    try expectEqual(jan20_loc, tzStringLocalization(tzstring, jan20));
 }
 
 const TimeZone = @This();
@@ -98,3 +234,4 @@ const std = @import("std");
 const log = std.log.scoped(.timezone);
 
 const AnyWriter = std.io.AnyWriter;
+const Allocator = std.mem.Allocator;

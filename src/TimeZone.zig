@@ -127,24 +127,29 @@ fn tzifLocalization(tzif: TZif, date: DateTime) Localization {
         }
     };
 
-    const leap_second_offset: i64 = blk: {
+    // FIXME: deal with this part of the spec
+    // If "leapcnt" is zero, LEAPCORR is zero for all timestamps.
+    // If "leapcnt" is nonzero, for timestamps before the first occurrence time,
+    // LEAPCORR is zero if the first correction is one (1) or minus one (-1) and
+    // is unspecified otherwise (which can happen only in files truncated at the
+    // start (Section 6.1)).
+    const leap_second_offset: i32 = blk: {
+        if (tzif.header.leapcnt == 0) break :blk 0;
+
         if (data.leap_second_expiration) |exp| {
             if (exp < timestamp)
                 log.warn("Leap second table expired for timestamp", .{});
         }
 
-        // positive leap second or minus one (-1) for a negative leap second
-        var sum: i64 = 0;
+        // The occurance goes up or down by 1 depending on a positive or negative
+        // leap second. This means that the previous correction is equal to the
+        // amount of leap seconds
+        var prev_correction: i32 = 0;
         for (data.leap_second_records) |leap| {
-            if (leap.occurrence >= timestamp) break :blk sum;
-
-            if (leap.correction >= 0)
-                sum += 1
-            else
-                sum -= 1;
+            if (leap.occurrence >= timestamp) break :blk prev_correction;
+            prev_correction = leap.correction;
         }
-
-        break :blk sum;
+        break :blk prev_correction;
     };
 
     return .{

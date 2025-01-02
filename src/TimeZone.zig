@@ -58,36 +58,73 @@ pub fn localFormat(writer: anytype, timezone: TimeZone, date: DateTime) !void {
 }
 
 fn tzifLocalization(tzif: TZif, date: DateTime) Localization {
+    assert(tzif.isValid());
+
     const data = tzif.data_block;
     const timestamp = date.toUnixTimestamp();
 
+    const RelevantTransition = union(enum) {
+        before,
+        on: TZif.TZifDataBlock.Transition,
+        after,
+        none,
+    };
+
     // relevant transition.
     // If time < first transition or time > last transition it's null
-    const relevant_transition: ?TZif.TZifDataBlock.Transition = blk: {
-        var prev_transition: ?TZif.TZifDataBlock.Transition = null;
+    const relevant_transition: RelevantTransition = blk: {
+        if (data.transition_times.len == 0) break :blk .none;
+
+        var prev_transition: RelevantTransition = .before;
         for (data.transition_times) |trans| {
             if (trans.unix_timestamp > timestamp)
                 break :blk prev_transition;
 
-            prev_transition = trans;
+            prev_transition = .{ .on = trans };
         }
-        break :blk null;
+        break :blk .after;
     };
 
     const base_offset: i64, const is_dst = blk: {
-        if (relevant_transition) |trans| {
-            const record = data.local_time_type_records[trans.idx];
-            break :blk .{ record.offset, record.daylight_savings_time };
+        switch (relevant_transition) {
+            .on => |t| {
+                const record = data.local_time_type_records[t.idx];
+                break :blk .{ record.offset, record.daylight_savings_time };
+            },
+
+            // If we are before any transition, we don't want to look at the footer
+            // as it's meant for _after_ the transitions
+            //
+            // TODO: Do a sanity check on this when it's not 4 am
+            .before => {
+                const idx = data.transition_times[0].idx;
+                const record = data.local_time_type_records[idx];
+                break :blk .{ record.offset, record.daylight_savings_time };
+            },
+            else => {},
         }
 
+        // Then check if we can be smart and use the footer
         if (tzif.footer) |footer| {
             const tz_loc = tzStringLocalization(footer.tz_string, date);
 
             break :blk .{ tz_loc.base_offset, tz_loc.is_dst };
         }
 
-        // FIXME: deal with the case where we cannot infer an offset
-        @panic("TODO: deal with the case where we cannot infer an offset");
+        // Do a last ditch effort
+        switch (relevant_transition) {
+            .after => {
+                const idx = data.transition_times[data.transition_times.len - 1].idx;
+                const record = data.local_time_type_records[idx];
+                break :blk .{ record.offset, record.daylight_savings_time };
+            },
+
+            // We really have no information here, assume GMT, no dst
+            .none => break :blk .{ 0, false },
+
+            // Already handled
+            .on, .before => unreachable,
+        }
     };
 
     const leap_second_offset: i64 = blk: {
@@ -96,6 +133,7 @@ fn tzifLocalization(tzif: TZif, date: DateTime) Localization {
                 log.warn("Leap second table expired for timestamp", .{});
         }
 
+        // positive leap second or minus one (-1) for a negative leap second
         var sum: i64 = 0;
         for (data.leap_second_records) |leap| {
             if (leap.occurrence >= timestamp) break :blk sum;
@@ -232,6 +270,7 @@ const TZString = @import("TZString.zig");
 
 const std = @import("std");
 const log = std.log.scoped(.timezone);
+const assert = std.debug.assert;
 
 const AnyWriter = std.io.AnyWriter;
 const Allocator = std.mem.Allocator;

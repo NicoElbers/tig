@@ -9,6 +9,11 @@ data: union(enum) {
     tzif: TZif,
     tz_string: TZString,
     windows: void,
+
+    /// We weren't able to find the systems timezone.
+    ///
+    /// We assume GMT, no daylight savings time
+    none,
 },
 
 pub const Localization = struct {
@@ -19,11 +24,11 @@ pub const Localization = struct {
 
 fn findTimeZone(alloc: Allocator) !TimeZone {
     if (@import("builtin").os.tag == .windows) {
-        return .windows;
+        return .{ .data = .{ .windows = {} } };
     }
 
     if (try TZif.findTzif(alloc)) |tzif| {
-        return .{ .tzif = tzif };
+        return .{ .data = .{ .tzif = tzif } };
     }
 
     const env_map = try std.process.getEnvMap(alloc);
@@ -36,17 +41,18 @@ fn findTimeZone(alloc: Allocator) !TimeZone {
         const reader = fbs.reader().any();
         const tz_string = try TZString.parse(alloc, reader);
 
-        return .{ .tz_string = tz_string };
+        return .{ .data = .{ .tz_string = tz_string } };
     }
 
-    @panic("TODO: Deal with the case where we can't resolve the timezone");
+    return .{ .data = .none };
 }
 
 pub fn localize(timezone: TimeZone, date: DateTime) DateTime {
     const data: Localization = switch (timezone.data) {
         .tzif => |tzif| tzifLocalization(tzif, date),
         .tz_string => |tz_str| tzStringLocalization(tz_str, date),
-        inline else => @panic(std.fmt.comptimePrint("TODO: implement localize for this", .{})),
+        .none => .{ .base_offset = 0, .leap_second_offset = 0, .is_dst = false },
+        .windows => @panic(std.fmt.comptimePrint("TODO: implement localize for windows", .{})),
     };
 
     return date.addSeconds(data.base_offset + data.leap_second_offset);

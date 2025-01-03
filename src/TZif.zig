@@ -470,7 +470,8 @@ pub fn findTzif(alloc: Allocator) Allocator.Error!?TZif {
     // Try hardcoded paths
     for (potential_tzif_paths) |path| {
         const file = fs.openFileAbsolute(path, .{}) catch continue;
-        const reader = file.reader().any();
+        var buf_reader = std.io.bufferedReader(file.reader().any());
+        const reader = buf_reader.reader().any();
 
         // Ignore any invalid tzif files
         const tzif = parseTzif(alloc, reader) catch |err| switch (err) {

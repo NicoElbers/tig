@@ -22,7 +22,16 @@ pub const Localization = struct {
     is_dst: bool,
 };
 
-fn findTimeZone(alloc: Allocator) Allocator.Error!TimeZone {
+pub const Error = Allocator.Error || std.process.GetEnvMapError;
+
+pub fn deinit(self: TimeZone, alloc: Allocator) void {
+    switch (self.data) {
+        .tzif => |tzif| tzif.deinit(alloc),
+        else => {},
+    }
+}
+
+pub fn find(alloc: Allocator) Error!TimeZone {
     if (@import("builtin").os.tag == .windows) {
         return .{ .data = .{ .windows = {} } };
     }
@@ -31,16 +40,16 @@ fn findTimeZone(alloc: Allocator) Allocator.Error!TimeZone {
         return .{ .data = .{ .tzif = t } };
     }
 
-    const env_map = try std.process.getEnvMap(alloc);
+    var env_map = try std.process.getEnvMap(alloc);
     defer env_map.deinit();
 
     // According to Posix, systems should have the TZ env var, however
     // I can't find it on my machine. I'll have the check anyway
     if (env_map.get("TZ")) |tz| blk: {
-        const fbs = std.io.fixedBufferStream(tz);
+        var fbs = std.io.fixedBufferStream(tz);
         const reader = fbs.reader().any();
         const tz_string = TZString.parse(alloc, reader) catch |err| switch (err) {
-            Allocator.Error.OutOfMemory => return err,
+            error.OutOfMemory => return Error.OutOfMemory,
             else => break :blk,
         };
 

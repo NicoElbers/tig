@@ -94,6 +94,16 @@ fn tzifLocalization(tzif: TZif, date: DateTime) Localization {
         break :blk .after;
     };
 
+    // FIXME: Handle this part of the spec:
+    // (desig)idx:
+    // A one-octet unsigned integer specifying a zero-based index into the series
+    // of time zone designation octets, thereby selecting a particular designation
+    // string. Each index be in the range [0, "charcnt" - 1]; it designates the
+    // NUL‑terminated string of octets starting at position "idx" in the
+    // time zone designations. (This string MAY be empty.) A NUL octet MUST exist
+    // in the time zone designations at or after position "idx". If the designation
+    // string is "-00", the time type is a placeholder indicating that
+    // local time is unspecified.
     const base_offset: i64, const is_dst = blk: {
         switch (relevant_transition) {
             .on => |t| {

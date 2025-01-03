@@ -37,27 +37,31 @@ pub const TZifHeader = struct {
     typecnt: u32,
     charcnt: u32,
 
+    pub const Error = error{
+        InvalidHeader,
+    };
+
     /// Parses TZif header. Assumes the next byte the reader reads is the first byte
     /// of the magic bytes
-    fn parse(r: AnyReader) ?TZifHeader {
+    fn parse(r: AnyReader) Error!TZifHeader {
         // Verify magic
         {
             const magic = "TZif";
             var read_magic: [4]u8 = undefined;
-            r.readNoEof(&read_magic) catch return null;
-            if (!std.mem.eql(u8, magic, &read_magic)) return null;
+            r.readNoEof(&read_magic) catch return Error.InvalidHeader;
+            if (!std.mem.eql(u8, magic, &read_magic)) return Error.InvalidHeader;
         }
 
-        const version = Version.parse(r.readByte() catch return null);
+        const version = Version.parse(r.readByte() catch return Error.InvalidHeader);
 
         // Unused bytes
-        r.skipBytes(15, .{ .buf_size = 15 }) catch return null;
+        r.skipBytes(15, .{ .buf_size = 15 }) catch return Error.InvalidHeader;
 
         // A four-octet unsigned integer specifying the number of UT/local indicators contained in
         // the data block -- MUST either be zero or equal to "typecnt".
         const isutcnt = blk: {
             var oct4: [4]u8 = undefined;
-            r.readNoEof(&oct4) catch return null;
+            r.readNoEof(&oct4) catch return Error.InvalidHeader;
             break :blk mem.readInt(u32, &oct4, .big);
         };
 
@@ -65,7 +69,7 @@ pub const TZifHeader = struct {
         // contained in the data block -- MUST either be zero or equal to "typecnt".
         const isstdcnt = blk: {
             var oct4: [4]u8 = undefined;
-            r.readNoEof(&oct4) catch return null;
+            r.readNoEof(&oct4) catch return Error.InvalidHeader;
             break :blk mem.readInt(u32, &oct4, .big);
         };
 
@@ -73,7 +77,7 @@ pub const TZifHeader = struct {
         // in the data block.
         const leapcnt = blk: {
             var oct4: [4]u8 = undefined;
-            r.readNoEof(&oct4) catch return null;
+            r.readNoEof(&oct4) catch return Error.InvalidHeader;
             break :blk mem.readInt(u32, &oct4, .big);
         };
 
@@ -81,7 +85,7 @@ pub const TZifHeader = struct {
         // the data block.
         const timecnt = blk: {
             var oct4: [4]u8 = undefined;
-            r.readNoEof(&oct4) catch return null;
+            r.readNoEof(&oct4) catch return Error.InvalidHeader;
             break :blk mem.readInt(u32, &oct4, .big);
         };
 
@@ -92,7 +96,7 @@ pub const TZifHeader = struct {
         // types.)
         const typecnt = blk: {
             var oct4: [4]u8 = undefined;
-            r.readNoEof(&oct4) catch return null;
+            r.readNoEof(&oct4) catch return Error.InvalidHeader;
             const n = mem.readInt(u32, &oct4, .big);
 
             break :blk n;
@@ -103,16 +107,16 @@ pub const TZifHeader = struct {
         // the trailing NUL (0x00) octet at the end of the last time zone designation.
         const charcnt = blk: {
             var oct4: [4]u8 = undefined;
-            r.readNoEof(&oct4) catch return null;
+            r.readNoEof(&oct4) catch return Error.InvalidHeader;
             break :blk mem.readInt(u32, &oct4, .big);
         };
 
         // Since we did not have the entire header before, we can only check isutcnt,
         // isstdcnt, typecnt and charcnt invariants now.
-        if (isutcnt != 0 and isutcnt != typecnt) return null;
-        if (isstdcnt != 0 and isstdcnt != typecnt) return null;
+        if (isutcnt != 0 and isutcnt != typecnt) return Error.InvalidHeader;
+        if (isstdcnt != 0 and isstdcnt != typecnt) return Error.InvalidHeader;
         if (typecnt == 0) log.warn("typecnt is 0, this is against RFC 9636", .{});
-        if (charcnt == 0) return null;
+        if (charcnt == 0) return Error.InvalidHeader;
 
         return .{
             .version = version,
@@ -457,9 +461,7 @@ pub fn deinit(self: TZif, alloc: Allocator) void {
 }
 
 /// Do a best attempt at finding the systems time zone information file.
-/// If at some point we cannot open a file we expect may have a tzif, silently
-/// fail.
-pub fn findTzif(alloc: Allocator) !?TZif {
+pub fn findTzif(alloc: Allocator) Allocator.Error!?TZif {
     switch (@import("builtin").os.tag) {
         .windows => return null,
         else => {},
@@ -468,20 +470,27 @@ pub fn findTzif(alloc: Allocator) !?TZif {
     // Try hardcoded paths
     for (potential_tzif_paths) |path| {
         const file = fs.openFileAbsolute(path, .{}) catch continue;
+        const reader = file.reader().any();
 
-        const tzif = try parseTzif(alloc, file.reader().any());
+        // Ignore any invalid tzif files
+        const tzif = parseTzif(alloc, reader) catch |err| switch (err) {
+            ParseError.OutOfMemory => return ParseError.OutOfMemory,
+            else => continue,
+        };
 
-        if (tzif) |t| return t;
+        return tzif;
     }
 
     return null;
 }
 
+pub const ParseError = TZifHeader.Error || TZifDataBlock.Error || TZifFooter.Error;
+
 /// A tzif parser based on RFC 9636, modified slightly to be more permissive
 /// to bad input. Any out of spec modifications will result in a logged warning.
-pub fn parseTzif(alloc: Allocator, r: AnyReader) !?TZif {
+pub fn parseTzif(alloc: Allocator, r: AnyReader) ParseError!TZif {
     const header = blk: {
-        var h1 = TZifHeader.parse(r) orelse return null;
+        var h1 = try TZifHeader.parse(r);
 
         // We have a v1 header, we need to actually use it
         if (h1.version == .@"1") break :blk h1;
@@ -494,7 +503,9 @@ pub fn parseTzif(alloc: Allocator, r: AnyReader) !?TZif {
         h1.version = .@"1";
         h1.skipDataBlock(r);
 
-        const h2 = TZifHeader.parse(r) orelse return null;
+        // At this point we saw a valid first header, so we can assume this is
+        // a TZif fil
+        const h2 = try TZifHeader.parse(r);
 
         if (h2.version != .@"2+")
             log.warn("Second header does not indicate v2+, this is against RFC 9636", .{});
@@ -502,7 +513,7 @@ pub fn parseTzif(alloc: Allocator, r: AnyReader) !?TZif {
         break :blk h2;
     };
 
-    const data_block = TZifDataBlock.parse(alloc, r, header) catch return null;
+    const data_block = try TZifDataBlock.parse(alloc, r, header);
     errdefer data_block.deinit(alloc);
 
     if (header.version == .@"1") {

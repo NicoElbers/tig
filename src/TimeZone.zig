@@ -22,13 +22,13 @@ pub const Localization = struct {
     is_dst: bool,
 };
 
-fn findTimeZone(alloc: Allocator) !TimeZone {
+fn findTimeZone(alloc: Allocator) Allocator.Error!TimeZone {
     if (@import("builtin").os.tag == .windows) {
         return .{ .data = .{ .windows = {} } };
     }
 
-    if (try TZif.findTzif(alloc)) |tzif| {
-        return .{ .data = .{ .tzif = tzif } };
+    if (try TZif.findTzif(alloc)) |t| {
+        return .{ .data = .{ .tzif = t } };
     }
 
     const env_map = try std.process.getEnvMap(alloc);
@@ -36,10 +36,13 @@ fn findTimeZone(alloc: Allocator) !TimeZone {
 
     // According to Posix, systems should have the TZ env var, however
     // I can't find it on my machine. I'll have the check anyway
-    if (env_map.get("TZ")) |tz| {
+    if (env_map.get("TZ")) |tz| blk: {
         const fbs = std.io.fixedBufferStream(tz);
         const reader = fbs.reader().any();
-        const tz_string = try TZString.parse(alloc, reader);
+        const tz_string = TZString.parse(alloc, reader) catch |err| switch (err) {
+            Allocator.Error.OutOfMemory => return err,
+            else => break :blk,
+        };
 
         return .{ .data = .{ .tz_string = tz_string } };
     }

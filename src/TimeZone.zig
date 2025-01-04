@@ -305,3 +305,7 @@ const assert = std.debug.assert;
 
 const AnyWriter = std.io.AnyWriter;
 const Allocator = std.mem.Allocator;
+
+test {
+    _ = &find; // Ensure this compiles
+}

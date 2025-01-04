@@ -22,7 +22,7 @@ pub const Localization = struct {
     is_dst: bool,
 };
 
-pub const Error = Allocator.Error || std.process.GetEnvMapError;
+pub const Error = Allocator.Error || std.process.GetEnvVarOwnedError;
 
 pub fn deinit(self: TimeZone, alloc: Allocator) void {
     switch (self.data) {
@@ -40,15 +40,13 @@ pub fn find(alloc: Allocator) Error!TimeZone {
         return .{ .data = .{ .tzif = t } };
     }
 
-    var env_map = try std.process.getEnvMap(alloc);
-    defer env_map.deinit();
-
     // According to Posix, systems should have the TZ env var, however
     // I can't find it on my machine. I'll have the check anyway
-    if (env_map.get("TZ")) |tz| blk: {
-        var fbs = std.io.fixedBufferStream(tz);
-        const reader = fbs.reader().any();
-        const tz_string = TZString.parse(alloc, reader) catch |err| switch (err) {
+    if (std.process.hasEnvVarConstant("TZ")) blk: {
+        const tz = try std.process.getEnvVarOwned(alloc, "TZ");
+        defer alloc.free(tz);
+
+        const tz_string, _ = TZString.parse(alloc, tz) catch |err| switch (err) {
             error.OutOfMemory => return Error.OutOfMemory,
             else => break :blk,
         };

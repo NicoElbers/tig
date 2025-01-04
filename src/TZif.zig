@@ -440,7 +440,18 @@ pub const TZifFooter = struct {
             if (byte != '\n') return Error.InvalidFooter;
         }
 
-        const tz_string = try TZString.parse(alloc, r);
+        // FIXME: We should not be allocating this buffer and instead passing
+        // around a buffer inside the parser. However I can't be fucked to also
+        // rework the entire TZif parser right now so this will do.
+        const buf = r.readAllAlloc(alloc, 0x400) catch |err| switch (err) {
+            error.OutOfMemory => return Error.OutOfMemory,
+            else => unreachable,
+        };
+        defer alloc.free(buf);
+
+        const tz_string, const end = try TZString.parse(alloc, buf);
+
+        if (end >= buf.len or buf[end] != '\n') return Error.InvalidFooter;
 
         return .{
             .tz_string = tz_string,
@@ -448,7 +459,7 @@ pub const TZifFooter = struct {
     }
 };
 
-const potential_tzif_paths = [_][]const u8{
+const potential_tzif_paths = [_][:0]const u8{
     "/etc/localtime",
     "/etc/timezone",
 };
@@ -469,13 +480,36 @@ pub fn findTzif(alloc: Allocator) Allocator.Error!?TZif {
 
     // Try hardcoded paths
     for (potential_tzif_paths) |path| {
-        const file = fs.openFileAbsolute(path, .{}) catch continue;
-        var buf_reader = std.io.bufferedReader(file.reader().any());
-        const reader = buf_reader.reader().any();
+        const file = fs.openFileAbsoluteZ(path, .{}) catch continue;
+        defer file.close();
+
+        // Biggest tzif file I can find on my machine is 4.4k. So we limit at
+        // 1 Mb
+        const buf = switch (@import("builtin").os.tag) {
+            .wasi => file.readToEndAlloc(alloc, 0x100000) catch |err| switch (err) {
+                error.OutOfMemory => return ParseError.OutOfMemory,
+                else => continue,
+            },
+            else => std.posix.mmap(
+                null,
+                file.getEndPos() catch continue,
+                std.posix.PROT.READ,
+                .{ .TYPE = .PRIVATE },
+                file.handle,
+                0,
+            ) catch continue,
+        };
+        defer switch (@import("builtin").os.tag) {
+            .wasi => alloc.free(buf),
+            else => std.posix.munmap(buf),
+        };
+
+        var fbs = std.io.fixedBufferStream(buf);
+        const reader = fbs.reader().any();
 
         // Ignore any invalid tzif files
         const tzif = parseTzif(alloc, reader) catch |err| switch (err) {
-            ParseError.OutOfMemory => return ParseError.OutOfMemory,
+            error.OutOfMemory => return ParseError.OutOfMemory,
             else => continue,
         };
 

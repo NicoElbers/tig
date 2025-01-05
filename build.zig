@@ -8,8 +8,6 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/DateTime.zig"),
         .target = target,
         .optimize = optimize,
-        // .use_llvm = false,
-        // .use_lld = false,
     });
     const datetime_unit_tests = b.addRunArtifact(datetime_tests);
 
@@ -17,8 +15,6 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/TimeZone.zig"),
         .target = target,
         .optimize = optimize,
-        // .use_llvm = false,
-        // .use_lld = false,
     });
     const timezone_unit_tests = b.addRunArtifact(timezone_tests);
 

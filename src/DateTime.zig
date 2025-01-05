@@ -1503,6 +1503,14 @@ pub const DayOfWeek = enum(u3) {
         return @intFromEnum(day) - 1;
     }
 
+    // FIXME: Make this work with negatives too
+    pub fn dowAfterNDays(dow: DayOfWeek, days: u45) DayOfWeek {
+        const dow_num: u45 = dow.toOrdinal();
+        const new_num = dow_num + days;
+        const new_dow_ordinal: u3 = @intCast(@mod(new_num, 7));
+        return DayOfWeek.from0(new_dow_ordinal);
+    }
+
     pub fn next(day: DayOfWeek) DayOfWeek {
         return switch (day) {
             // zig fmt: off
@@ -2457,6 +2465,10 @@ pub fn addSeconds(date: DateTime, seconds: i64) DateTime {
     return .{
         .timestamp = date.timestamp + seconds,
     };
+}
+
+pub fn toUnixTimestamp(date: DateTime) i64 {
+    return date.timestamp - DateTime.unixEpoch.timestamp;
 }
 
 pub fn isValid(date: DateTime) bool {

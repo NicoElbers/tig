@@ -37,52 +37,54 @@ pub const TZifHeader = struct {
     typecnt: u32,
     charcnt: u32,
 
+    pub const Error = error{
+        InvalidHeader,
+    };
+
     /// Parses TZif header. Assumes the next byte the reader reads is the first byte
     /// of the magic bytes
-    fn parse(r: AnyReader) ?TZifHeader {
+    fn parse(buffer: *const [44]u8) Error!TZifHeader {
+        var buf: []const u8 = buffer;
+
         // Verify magic
         {
             const magic = "TZif";
-            var read_magic: [4]u8 = undefined;
-            r.readNoEof(&read_magic) catch return null;
-            if (!std.mem.eql(u8, magic, &read_magic)) return null;
+            if (!std.mem.eql(u8, magic, buf[0..4])) return Error.InvalidHeader;
+            buf = buf[4..];
         }
 
-        const version = Version.parse(r.readByte() catch return null);
+        const version = Version.parse(buf[0]);
+        buf = buf[1..];
 
-        // Unused bytes
-        r.skipBytes(15, .{ .buf_size = 15 }) catch return null;
+        // 15 Unused bytes
+        buf = buf[15..];
 
         // A four-octet unsigned integer specifying the number of UT/local indicators contained in
         // the data block -- MUST either be zero or equal to "typecnt".
         const isutcnt = blk: {
-            var oct4: [4]u8 = undefined;
-            r.readNoEof(&oct4) catch return null;
-            break :blk mem.readInt(u32, &oct4, .big);
+            defer buf = buf[4..];
+            break :blk mem.readInt(u32, buf[0..4], .big);
         };
 
         // A four-octet unsigned integer specifying the number of standard/wall indicators
         // contained in the data block -- MUST either be zero or equal to "typecnt".
         const isstdcnt = blk: {
-            var oct4: [4]u8 = undefined;
-            r.readNoEof(&oct4) catch return null;
-            break :blk mem.readInt(u32, &oct4, .big);
+            defer buf = buf[4..];
+            break :blk mem.readInt(u32, buf[0..4], .big);
         };
 
         // A four-octet unsigned integer specifying the number of leap-second records contained
         // in the data block.
         const leapcnt = blk: {
-            var oct4: [4]u8 = undefined;
-            r.readNoEof(&oct4) catch return null;
-            break :blk mem.readInt(u32, &oct4, .big);
+            defer buf = buf[4..];
+            break :blk mem.readInt(u32, buf[0..4], .big);
         };
 
         // A four-octet unsigned integer specifying the number of transition times contained in
         // the data block.
         const timecnt = blk: {
-            var oct4: [4]u8 = undefined;
-            r.readNoEof(&oct4) catch return null;
-            break :blk mem.readInt(u32, &oct4, .big);
+            defer buf = buf[4..];
+            break :blk mem.readInt(u32, buf[0..4], .big);
         };
 
         // A four-octet unsigned integer specifying the number of local time type records
@@ -91,28 +93,24 @@ pub const TZifHeader = struct {
         // record is nevertheless required because many TZif readers reject files that have zero time
         // types.)
         const typecnt = blk: {
-            var oct4: [4]u8 = undefined;
-            r.readNoEof(&oct4) catch return null;
-            const n = mem.readInt(u32, &oct4, .big);
-
-            break :blk n;
+            defer buf = buf[4..];
+            break :blk mem.readInt(u32, buf[0..4], .big);
         };
 
         // A four-octet unsigned integer specifying the total number of octets used by the set of
         // time zone designations contained in the data block -- MUST NOT be zero. The count includes
         // the trailing NUL (0x00) octet at the end of the last time zone designation.
         const charcnt = blk: {
-            var oct4: [4]u8 = undefined;
-            r.readNoEof(&oct4) catch return null;
-            break :blk mem.readInt(u32, &oct4, .big);
+            defer buf = buf[4..];
+            break :blk mem.readInt(u32, buf[0..4], .big);
         };
 
         // Since we did not have the entire header before, we can only check isutcnt,
         // isstdcnt, typecnt and charcnt invariants now.
-        if (isutcnt != 0 and isutcnt != typecnt) return null;
-        if (isstdcnt != 0 and isstdcnt != typecnt) return null;
+        if (isutcnt != 0 and isutcnt != typecnt) return Error.InvalidHeader;
+        if (isstdcnt != 0 and isstdcnt != typecnt) return Error.InvalidHeader;
         if (typecnt == 0) log.warn("typecnt is 0, this is against RFC 9636", .{});
-        if (charcnt == 0) return null;
+        if (charcnt == 0) return Error.InvalidHeader;
 
         return .{
             .version = version,
@@ -172,9 +170,17 @@ pub const TZifHeader = struct {
 pub const TZifDataBlock = struct {
     transition_times: []const Transition,
     local_time_type_records: []const LocalTimeRecord,
-    timezone_designation: [:0]const u8,
+    timezone_designation: []const u8,
+
+    /// Leap second records
+    ///
+    /// If these records have an expiration date (as per version 4), this should
+    /// NOT be included in this field. It should be included in `leap_second_expiration`
     leap_second_records: []const LeapSecondRecord,
-    leap_second_expiration: ?LeapSecondRecord,
+    leap_second_expiration: ?i64,
+
+    // TODO: Consolidate these two into a single array
+    // this is kinda wasteful and hard to parse
     std_wall_indicators: ?[]const StdWallIndicator,
     ut_local_indicators: ?[]const UtLocalIndicator,
 
@@ -216,7 +222,13 @@ pub const TZifDataBlock = struct {
         }
     }
 
-    pub fn parse(alloc: Allocator, r: AnyReader, header: TZifHeader) Error!TZifDataBlock {
+    pub fn parse(alloc: Allocator, header: TZifHeader, buffer: []const u8) Error!TZifDataBlock {
+        if (buffer.len <= header.dataBlockSize()) return Error.InvalidDataBlock;
+
+        // We know the exact size, so ensure we also consume the exact size
+        var buf: []const u8 = buffer[0..header.dataBlockSize()];
+        defer assert(buf.len == 0);
+
         const time_size = header.version.timeSize();
         assert(time_size == 4 or time_size == 8);
 
@@ -227,10 +239,11 @@ pub const TZifDataBlock = struct {
             // Parse transition times
             for (0..header.timecnt) |i| {
                 const timestamp: i64 = switch (time_size) {
-                    4 => @as(i64, r.readInt(i32, .big) catch return Error.InvalidDataBlock),
-                    8 => r.readInt(i64, .big) catch return Error.InvalidDataBlock,
+                    4 => @as(i64, mem.readInt(i32, buf[0..4], .big)),
+                    8 => mem.readInt(i64, buf[0..8], .big),
                     else => return Error.InvalidDataBlock,
                 };
+                buf = buf[time_size..];
 
                 if (timestamp < -(comptime std.math.powi(i64, 2, 59) catch unreachable))
                     log.warn("Transition timestamp < -2^59, this is against RFC 9636", .{});
@@ -240,7 +253,8 @@ pub const TZifDataBlock = struct {
 
             // Parse transition types
             for (0..header.timecnt) |i| {
-                const idx: u8 = r.readInt(u8, .big) catch return Error.InvalidDataBlock;
+                const idx: u8 = buf[0];
+                buf = buf[1..];
 
                 if (idx >= header.typecnt)
                     return Error.InvalidDataBlock;
@@ -258,7 +272,8 @@ pub const TZifDataBlock = struct {
 
             // Parse local time type records
             for (0..header.typecnt) |i| {
-                const offset = r.readInt(i32, .big) catch return Error.InvalidDataBlock;
+                const offset = mem.readInt(i32, buf[0..4], .big);
+                buf = buf[4..];
 
                 if (offset == std.math.minInt(i32))
                     log.warn("Local time record offset is -2^59, this is against RFC 9636", .{});
@@ -267,7 +282,8 @@ pub const TZifDataBlock = struct {
                     log.warn("Local time record offset 26 < offset < -25, this is against RFC 9636", .{});
 
                 const daylight_saving_time = dst: {
-                    const byte = r.readInt(u8, .big) catch return Error.InvalidDataBlock;
+                    const byte = buf[0];
+                    buf = buf[1..];
 
                     break :dst switch (byte) {
                         0 => false,
@@ -276,7 +292,8 @@ pub const TZifDataBlock = struct {
                     };
                 };
 
-                const designation_idx = r.readInt(u8, .big) catch return Error.InvalidDataBlock;
+                const designation_idx = buf[0];
+                buf = buf[1..];
 
                 if (designation_idx >= header.charcnt) return Error.InvalidDataBlock;
 
@@ -291,20 +308,21 @@ pub const TZifDataBlock = struct {
         };
         errdefer alloc.free(local_time_type_records);
 
-        const timezone_designation: [:0]const u8 = blk: {
+        const timezone_designation: []const u8 = blk: {
             assert(header.charcnt > 0);
 
-            const full_str = try alloc.alloc(u8, header.charcnt);
-            errdefer alloc.free(full_str);
+            const timezone_designation = try alloc.alloc(u8, header.charcnt);
+            errdefer alloc.free(timezone_designation);
 
             // Parse Time zone designations
-            r.readNoEof(full_str) catch return Error.InvalidDataBlock;
+            @memcpy(timezone_designation, buf[0..header.charcnt]);
+            buf = buf[header.charcnt..];
 
             // Must be a null terminated string
-            if (full_str[header.charcnt - 1] != 0)
+            if (timezone_designation[header.charcnt - 1] != 0)
                 return Error.InvalidDataBlock;
 
-            break :blk full_str[0 .. header.charcnt - 1 :0];
+            break :blk timezone_designation;
         };
         errdefer alloc.free(timezone_designation);
 
@@ -315,12 +333,14 @@ pub const TZifDataBlock = struct {
             // Parse leap second records
             for (0..header.leapcnt) |i| {
                 const occurrence = switch (time_size) {
-                    4 => @as(i64, r.readInt(i32, .big) catch return Error.InvalidDataBlock),
-                    8 => r.readInt(i64, .big) catch return Error.InvalidDataBlock,
+                    4 => @as(i64, mem.readInt(i32, buf[0..4], .big)),
+                    8 => mem.readInt(i64, buf[0..8], .big),
                     else => return Error.InvalidDataBlock,
                 };
+                buf = buf[time_size..];
 
-                const correction = r.readInt(i32, .big) catch return Error.InvalidDataBlock;
+                const correction = mem.readInt(i32, buf[0..4], .big);
+                buf = buf[4..];
 
                 leap_second_records[i] = .{
                     .occurrence = occurrence,
@@ -341,7 +361,7 @@ pub const TZifDataBlock = struct {
 
             break :blk .{
                 leap_second_records[0 .. leap_second_records.len - 1], // list
-                leap_second_records[leap_second_records.len - 1], // expiry
+                leap_second_records[leap_second_records.len - 1].occurrence, // expiry
             };
         };
         errdefer alloc.free(leap_second_records);
@@ -354,7 +374,8 @@ pub const TZifDataBlock = struct {
 
             // Parse standard/wall indicators
             for (0..header.isstdcnt) |i| {
-                const byte = r.readInt(u8, .big) catch return Error.InvalidDataBlock;
+                const byte = buf[0];
+                buf = buf[1..];
 
                 const indicator: StdWallIndicator = switch (byte) {
                     0 => .wall,
@@ -377,7 +398,8 @@ pub const TZifDataBlock = struct {
 
             // Parse UT/local indicators
             for (0..header.isutcnt) |i| {
-                const byte = r.readInt(u8, .big) catch return Error.InvalidDataBlock;
+                const byte = buf[0];
+                buf = buf[1..];
 
                 const indicator: UtLocalIndicator = switch (byte) {
                     0 => .local,
@@ -422,13 +444,15 @@ pub const TZifFooter = struct {
         self.tz_string.deinit(alloc);
     }
 
-    pub fn parse(alloc: Allocator, r: AnyReader) Error!TZifFooter {
+    pub fn parse(alloc: Allocator, buf: []const u8) Error!TZifFooter {
         {
-            const byte = r.readByte() catch return Error.InvalidFooter;
+            const byte = buf[0];
             if (byte != '\n') return Error.InvalidFooter;
         }
 
-        const tz_string = try TZString.parse(alloc, r);
+        const tz_string, const end = try TZString.parse(alloc, buf[1..]);
+
+        if (end + 1 >= buf.len or buf[end + 1] != '\n') return Error.InvalidFooter;
 
         return .{
             .tz_string = tz_string,
@@ -436,7 +460,7 @@ pub const TZifFooter = struct {
     }
 };
 
-const potential_tzif_paths = [_][]const u8{
+const potential_tzif_paths = [_][:0]const u8{
     "/etc/localtime",
     "/etc/timezone",
 };
@@ -449,9 +473,7 @@ pub fn deinit(self: TZif, alloc: Allocator) void {
 }
 
 /// Do a best attempt at finding the systems time zone information file.
-/// If at some point we cannot open a file we expect may have a tzif, silently
-/// fail.
-pub fn findTzif(alloc: Allocator) !?TZif {
+pub fn findTzif(alloc: Allocator) Allocator.Error!?TZif {
     switch (@import("builtin").os.tag) {
         .windows => return null,
         else => {},
@@ -459,21 +481,49 @@ pub fn findTzif(alloc: Allocator) !?TZif {
 
     // Try hardcoded paths
     for (potential_tzif_paths) |path| {
-        const file = fs.openFileAbsolute(path, .{}) catch continue;
+        const file = fs.openFileAbsoluteZ(path, .{}) catch continue;
+        defer file.close();
 
-        const tzif = parseTzif(alloc, file.reader().any());
+        // Biggest tzif file I can find on my machine is 4.4k. So we limit at
+        // 1 Mb
+        const buf = switch (@import("builtin").os.tag) {
+            .wasi => file.readToEndAlloc(alloc, 0x100000) catch |err| switch (err) {
+                error.OutOfMemory => return ParseError.OutOfMemory,
+                else => continue,
+            },
+            else => std.posix.mmap(
+                null,
+                file.getEndPos() catch continue,
+                std.posix.PROT.READ,
+                .{ .TYPE = .PRIVATE },
+                file.handle,
+                0,
+            ) catch continue,
+        };
+        defer switch (@import("builtin").os.tag) {
+            .wasi => alloc.free(buf),
+            else => std.posix.munmap(buf),
+        };
 
-        if (tzif != null) return tzif;
+        // Ignore any invalid tzif files
+        const tzif = parseTzif2(alloc, buf) catch |err| switch (err) {
+            error.OutOfMemory => return ParseError.OutOfMemory,
+            else => continue,
+        };
+
+        return tzif;
     }
 
     return null;
 }
 
+pub const ParseError = TZifHeader.Error || TZifDataBlock.Error || TZifFooter.Error;
+
 /// A tzif parser based on RFC 9636, modified slightly to be more permissive
 /// to bad input. Any out of spec modifications will result in a logged warning.
-pub fn parseTzif(alloc: Allocator, r: AnyReader) !?TZif {
+pub fn parseTzif(alloc: Allocator, r: AnyReader) ParseError!TZif {
     const header = blk: {
-        var h1 = TZifHeader.parse(r) orelse return null;
+        var h1 = try TZifHeader.parse(r);
 
         // We have a v1 header, we need to actually use it
         if (h1.version == .@"1") break :blk h1;
@@ -486,7 +536,9 @@ pub fn parseTzif(alloc: Allocator, r: AnyReader) !?TZif {
         h1.version = .@"1";
         h1.skipDataBlock(r);
 
-        const h2 = TZifHeader.parse(r) orelse return null;
+        // At this point we saw a valid first header, so we can assume this is
+        // a TZif fil
+        const h2 = try TZifHeader.parse(r);
 
         if (h2.version != .@"2+")
             log.warn("Second header does not indicate v2+, this is against RFC 9636", .{});
@@ -494,22 +546,351 @@ pub fn parseTzif(alloc: Allocator, r: AnyReader) !?TZif {
         break :blk h2;
     };
 
-    const data_block = TZifDataBlock.parse(alloc, r, header) catch return null;
+    const data_block = try TZifDataBlock.parse(alloc, r, header);
     errdefer data_block.deinit(alloc);
 
-    if (header.version == .@"1") return .{
-        .header = header,
-        .data_block = data_block,
-        .footer = null,
-    };
+    if (header.version == .@"1") {
+        const parsed: TZif = .{
+            .header = header,
+            .data_block = data_block,
+            .footer = null,
+        };
+
+        // Final sanity check
+        assert(parsed.isValid());
+
+        return parsed;
+    }
 
     const footer = try TZifFooter.parse(alloc, r);
 
-    return .{
+    const parsed: TZif = .{
         .header = header,
         .data_block = data_block,
         .footer = footer,
     };
+
+    // Final sanity check
+    assert(parsed.isValid());
+    return parsed;
+}
+
+pub fn parseTzif2(alloc: Allocator, buffer: []const u8) ParseError!TZif {
+    var buf = buffer;
+
+    const header = blk: {
+        if (buf.len <= 44) return ParseError.InvalidHeader;
+        var h1 = try TZifHeader.parse2(buf[0..44]);
+        buf = buf[44..];
+
+        // We have a v1 header, we need to actually use it
+        if (h1.version == .@"1") break :blk h1;
+
+        assert(h1.version == .@"2+");
+
+        // We have a v2+ header, we can skip the v1 header and
+        // The first header, which is for the v1 data block, still says the
+        // version is v2. So we manually override it.
+        h1.version = .@"1";
+        buf = buf[h1.dataBlockSize()..];
+
+        // At this point we saw a valid first header, so we can assume this is
+        // a TZif fil
+        if (buf.len <= 44) return ParseError.InvalidHeader;
+        var h2 = try TZifHeader.parse2(buf[0..44]);
+        buf = buf[44..];
+
+        if (h2.version != .@"2+") {
+            log.warn("Second header does not indicate v2+, this is against RFC 9636", .{});
+            h2.version = .@"2+";
+        }
+
+        break :blk h2;
+    };
+
+    const data_block = try TZifDataBlock.parse2(alloc, header, buf);
+    errdefer data_block.deinit(alloc);
+
+    buf = buf[header.dataBlockSize()..];
+
+    if (header.version == .@"1") {
+        const parsed: TZif = .{
+            .header = header,
+            .data_block = data_block,
+            .footer = null,
+        };
+
+        // Final sanity check
+        assert(parsed.isValid());
+
+        return parsed;
+    }
+
+    const footer = try TZifFooter.parse2(alloc, buf);
+
+    const parsed: TZif = .{
+        .header = header,
+        .data_block = data_block,
+        .footer = footer,
+    };
+
+    // Final sanity check
+    assert(parsed.isValid());
+    return parsed;
+}
+
+pub fn isValid(tzif: TZif) bool {
+    const header = tzif.header;
+    const data = tzif.data_block;
+
+    // isutcnt
+    // A four-octet unsigned integer specifying the number of UT/local indicators
+    // contained in the data block -- MUST either be zero or equal to "typecnt".
+    if (header.isutcnt != 0 and
+        (header.isutcnt != header.typecnt or
+        data.ut_local_indicators == null or
+        header.isutcnt != data.ut_local_indicators.?.len)) return false;
+
+    // isstdcnt
+    // A four-octet unsigned integer specifying the number of standard/wall indicators
+    // contained in the data block -- MUST either be zero or equal to "typecnt".
+    if (header.isstdcnt != 0 and
+        (header.isstdcnt != header.typecnt or
+        data.std_wall_indicators == null or
+        header.isstdcnt != data.std_wall_indicators.?.len)) return false;
+
+    // leapcnt
+    // A four-octet unsigned integer specifying the number of leap-second records
+    // contained in the data block.
+    const leap_second_record_count = data.leap_second_records.len + @intFromBool(data.leap_second_expiration != null);
+    if (header.leapcnt != leap_second_record_count) return false;
+
+    // timecnt
+    // A four-octet unsigned integer specifying the number of transition times
+    // contained in the data block.
+    if (header.timecnt != data.transition_times.len) return false;
+
+    // typecnt
+    // A four-octet unsigned integer specifying the number of local time type records
+    // contained in the data block -- MUST NOT be zero. (Although local time type records
+    // convey no useful information in files that have non-empty TZ strings but
+    // no transitions, at least one such record is nevertheless required because
+    // many TZif readers reject files that have zero time types.)
+    //
+    // NOTE: zero check omited to be more permissive to bad data,
+    // warning generated while parsing
+    if (header.typecnt != data.local_time_type_records.len) return false;
+
+    // charcnt
+    // A four-octet unsigned integer specifying the total number of octets used by the set of
+    // time zone designations contained in the data block -- MUST NOT be zero. The count includes
+    // the trailing NUL (0x00) octet at the end of the last time zone designation.
+    if (header.charcnt == 0 or header.charcnt != data.timezone_designation.len) return false;
+
+    // transition times
+    // A series of four- or eight-octet UNIX leap time values sorted in strictly
+    // ascending order. Each value is used as a transition time at which the rules
+    // for computing local time may change. The number of time values is specified
+    // by the "timecnt" field in the header.
+    //
+    // Each time value be at least -2^59. (-2^59 is the greatest negated power of
+    // 2 that predates the Big Bang, and avoiding earlier timestamps works around
+    // known TZif reader bugs relating to outlandishly negative timestamps.)
+    //
+    // NOTE: -2^59 check omited, warning generated while parsing
+    //
+    // transition types
+    // A series of one-octet unsigned integers specifying the type of local time
+    // of the corresponding transition time. These values serve as zero-based
+    // indices into the array of local time type records. The number of type indices
+    // is specified by the "timecnt" field in the header. Each type index be
+    // in the range [0, "typecnt" - 1].
+    var prev_trans_time: i64 = std.math.minInt(i64);
+    for (data.transition_times) |trans| {
+        // Transition time check
+        if (prev_trans_time >= trans.unix_timestamp) return false;
+        prev_trans_time = trans.unix_timestamp;
+
+        // Transion type check
+        if (trans.idx >= header.typecnt) return false;
+    }
+
+    // local time type records
+    // A series of six-octet records specifying a local time type. The number of
+    // records is specified by the "typecnt" field in the header. Each record has
+    // the following format (the lengths of multi-octet fields are shown in parentheses):
+    //
+    // ```
+    //  +---------------+---+---+
+    //  | utoff (4)     |dst|idx|
+    //  +---------------+---+---+
+    // ```
+    //
+    // utoff
+    // A four-octet signed integer specifying the number of seconds to be added
+    // to UT in order to determine local time. The value MUST NOT be -2^31 and
+    // SHOULD be in the range [-89999, 93599] (i.e., its value be more than -25
+    // hours and less than 26 hours).
+    //
+    // Avoiding -2^31 allows 32-bit clients to negate the value without overflow.
+    // Restricting it to [-89999, 93599] allows easy support by implementations
+    // that already support the POSIX- required range [-24:59:59, 25:59:59].
+    //
+    // NOTE: Both the -2^31 and the [-89999, 93599] checks are omited,
+    // warnings are generated while parsing for both
+    //
+    // (is)dst
+    // A one-octet value indicating whether local time should be considered
+    // Daylight Saving Time (DST). The value MUST be 0 or 1. A value of one (1)
+    // indicates that this type of time is DST. A value of zero (0) indicates
+    // that this time type is standard time.
+    //
+    // NOTE: As this is already represented as a bool, this cannot be invalid
+    //
+    // (desig)idx:
+    // A one-octet unsigned integer specifying a zero-based index into the series
+    // of time zone designation octets, thereby selecting a particular designation
+    // string. Each index be in the range [0, "charcnt" - 1]; it designates the
+    // NUL‑terminated string of octets starting at position "idx" in the
+    // time zone designations. (This string MAY be empty.) A NUL octet MUST exist
+    // in the time zone designations at or after position "idx". If the designation
+    // string is "-00", the time type is a placeholder indicating that
+    // local time is unspecified.
+    for (data.local_time_type_records) |rec| {
+        if (rec.designation_idx >= header.charcnt) return false;
+    }
+
+    // time zone designations
+    // A series of octets constituting an array of NUL‑terminated (0x00) time
+    // zone designation strings. The total number of octets is specified by the
+    // "charcnt" field in the header. Two designations overlap if one is a suffix
+    // of the other. The character encoding of time zone designation strings is
+    // not specified; however, see Section 4 of this document.
+    if (data.timezone_designation[data.timezone_designation.len - 1] != 0) return false;
+
+    // leap second records
+    // A series of eight- or twelve-octet records specifying the corrections that
+    // need to be applied to UTC in order to determine TAI, also known as the
+    // leap-second table. The records are sorted by the occurrence time in strictly
+    // ascending order. The number of records is specified by the "leapcnt" field
+    // in the header. Each record has one of the following structures
+    // (the lengths of multi-octet fields are shown in parentheses):
+    //
+    // Version 1 Data Block:
+    // ```
+    // +---------------+---------------+
+    // | occur (4)     | corr (4)      |
+    // +---------------+---------------+
+    // ```
+    //
+    // Version 2+ Data Block:
+    // ```
+    // +---------------+---------------+---------------+
+    // | occur (8)                     | corr (4)      |
+    // +---------------+---------------+---------------+
+    // ```
+    //
+    // occur(ence):
+    // A four- or eight-octet UNIX leap time value specifying the time at which
+    // a leap-second correction occurs or at which the leap-second table expires.
+    // The first value, if present, MUST be non-negative, and each leap second
+    // MUST occur at the end of a UTC month.
+    //
+    // TODO: See if I want to verify end of UTC month, or be more permissive and
+    // extend it to the end of a minute, or allow any second (although how do
+    // we represent that?)
+    //
+    // corr(ection):
+    // A four-octet signed integer specifying the value of LEAPCORR on or after
+    // the occurrence. If "leapcnt" is zero, LEAPCORR is zero for all timestamps.
+    // If "leapcnt" is nonzero, for timestamps before the first occurrence time,
+    // LEAPCORR is zero if the first correction is one (1) or minus one (-1) and
+    // is unspecified otherwise (which can happen only in files truncated at the
+    // start (Section 6.1)).
+    //
+    // The first leap second is a positive leap second if and only if its
+    // correction is positive. Each correction after the first MUST differ from
+    // the previous correction by either one (1) for a positive leap second or
+    // minus one (-1) for a negative leap second, except that in version 4 files
+    // with two or more leap-second records, the correction value of the last two
+    // records MAY be the same, with the occurrence of last record indicating the
+    // expiration time of the leap-second table.
+    //
+    // The leap-second table expiration time is the time at which the table no
+    // longer records the presence or absence of future leap-second corrections,
+    // and post-expiration timestamps cannot be accurately calculated. For example,
+    // a leap-second table published in January, which predicts the presence or
+    // absence of a leap second at June's end, might expire in mid-December because
+    // it is not known when the next leap second will occur.
+    //
+    // If leap seconds become permanently discontinued, as requested by the
+    // General Conference on Weights and Measures, leap-second tables published
+    // after the discontinuation time SHOULD NOT expire, since they will not be
+    // updated in the foreseeable future.
+    //
+    // NOTE: since the expiration date is ?i64, we cannot further verify it
+    var prev_occurence: i64 = -1;
+    var prev_correction: i32 = 0;
+    for (data.leap_second_records) |rec| {
+        if (prev_occurence >= rec.occurrence) return false;
+        prev_occurence = rec.occurrence;
+
+        if (@abs(prev_correction - rec.correction) != 1) return false;
+        prev_correction = rec.correction;
+    }
+
+    // We cannot have an expiration date with < 2 entries
+    if (header.leapcnt < 2 and data.leap_second_expiration != null) return false;
+
+    // standard/wall indicators
+    // A series of one-octet values indicating whether the transition times
+    // associated with local time types were specified as standard time or
+    // wall-clock time. Each value MUST be 0 or 1. A value of one (1) indicates
+    // standard time. The value MUST be set to one (1) if the corresponding UT/local
+    // indicator is set to one (1). A value of zero (0) indicates wall time.
+    // The number of values is specified by the "isstdcnt" field in the header.
+    // If "isstdcnt" is zero (0), all transition times associated with local time
+    // types are assumed to be specified as wall time.
+    //
+    // NOTE: as this is represented as a non exhaustive enum thus cannot be
+    // invalid in that way
+    //
+    // UT/local indicators
+    // A series of one-octet values indicating whether the transition times
+    // associated with local time types were specified as UT or local time.
+    // Each value MUST be 0 or 1. A value of one (1) indicates UT, and the
+    // corresponding standard/wall indicator MUST also be set to one (1). A
+    // value of zero (0) indicates local time. The number of values is specified
+    // by the "isutcnt" field in the header. If "isutcnt" is zero (0), all
+    // transition times associated with local time types are assumed to be
+    // specified as local time.
+    //
+    // NOTE: as this is represented as a non exhaustive enum thus cannot be
+    // invalid in that way
+
+    if (data.std_wall_indicators) |swi| {
+        if (data.ut_local_indicators) |utl| {
+            for (swi, utl) |s, u| {
+                if (u == .universal)
+                    if (s != .standard) return false;
+            }
+        }
+    } else {
+        // All std/wall == .wall
+        if (data.ut_local_indicators) |utl| {
+            for (utl) |u| {
+                if (u == .universal) return false;
+            }
+        }
+    }
+
+    if (header.version == .@"1") return true;
+
+    if (tzif.footer == null) return false;
+
+    // TODO: Add a footer.isValid() check
+
+    return true;
 }
 
 const std = @import("std");

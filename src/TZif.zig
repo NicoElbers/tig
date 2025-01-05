@@ -580,7 +580,7 @@ pub fn parseTzif2(alloc: Allocator, buffer: []const u8) ParseError!TZif {
 
     const header = blk: {
         if (buf.len <= 44) return ParseError.InvalidHeader;
-        var h1 = try TZifHeader.parse2(buf[0..44]);
+        var h1 = try TZifHeader.parse(buf[0..44]);
         buf = buf[44..];
 
         // We have a v1 header, we need to actually use it
@@ -597,7 +597,7 @@ pub fn parseTzif2(alloc: Allocator, buffer: []const u8) ParseError!TZif {
         // At this point we saw a valid first header, so we can assume this is
         // a TZif fil
         if (buf.len <= 44) return ParseError.InvalidHeader;
-        var h2 = try TZifHeader.parse2(buf[0..44]);
+        var h2 = try TZifHeader.parse(buf[0..44]);
         buf = buf[44..];
 
         if (h2.version != .@"2+") {
@@ -608,7 +608,7 @@ pub fn parseTzif2(alloc: Allocator, buffer: []const u8) ParseError!TZif {
         break :blk h2;
     };
 
-    const data_block = try TZifDataBlock.parse2(alloc, header, buf);
+    const data_block = try TZifDataBlock.parse(alloc, header, buf);
     errdefer data_block.deinit(alloc);
 
     buf = buf[header.dataBlockSize()..];
@@ -626,7 +626,7 @@ pub fn parseTzif2(alloc: Allocator, buffer: []const u8) ParseError!TZif {
         return parsed;
     }
 
-    const footer = try TZifFooter.parse2(alloc, buf);
+    const footer = try TZifFooter.parse(alloc, buf);
 
     const parsed: TZif = .{
         .header = header,

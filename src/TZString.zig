@@ -223,7 +223,7 @@ fn parseOffset(buf: []const u8) !struct { Offset, usize } {
                 '-',
                 => {},
                 ':' => {
-                    const hour = try std.fmt.parseInt(i9, buf[start..i], 10);
+                    const hour = std.fmt.parseInt(i9, buf[start..i], 10) catch return Error.InvalidOffset;
                     start = i + 1; // Skip :
 
                     if (hour < -167 or hour > 167) return Error.InvalidOffset;
@@ -241,7 +241,7 @@ fn parseOffset(buf: []const u8) !struct { Offset, usize } {
             }
         }
 
-        const hour = try std.fmt.parseInt(i9, buf[start..], 10);
+        const hour = std.fmt.parseInt(i9, buf[start..], 10) catch return Error.InvalidOffset;
         if (hour < -167 or hour > 167) return Error.InvalidOffset;
         return .{ .{ .hour = hour }, buf.len };
     };
@@ -352,10 +352,10 @@ fn parseDate(buf: []const u8) !struct { Rule.Date, usize } {
                     switch (c) {
                         '0'...'9' => {},
                         '.' => {
-                            const n = try std.fmt.parseInt(u4, buf[start..i], 10);
+                            const n = std.fmt.parseInt(u4, buf[start..i], 10) catch return Error.InvalidDate;
                             start = i + 1; // Skip the .
 
-                            break :month try MonthOfYear.fromChecked(n);
+                            break :month MonthOfYear.fromChecked(n) catch return Error.InvalidDate;
                         },
                         else => return Error.InvalidDate,
                     }
@@ -386,10 +386,10 @@ fn parseDate(buf: []const u8) !struct { Rule.Date, usize } {
                     switch (c) {
                         '0'...'9' => {},
                         else => {
-                            const n = try std.fmt.parseInt(u3, buf[start..i], 10);
+                            const n = std.fmt.parseInt(u3, buf[start..i], 10) catch return Error.InvalidDate;
                             start = i;
 
-                            break :day (try DayOfWeek.from0Checked(n)).prev();
+                            break :day (DayOfWeek.from0Checked(n) catch return Error.InvalidDate).prev();
                         },
                     }
                 }

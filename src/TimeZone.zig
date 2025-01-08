@@ -20,6 +20,7 @@ pub const Localization = struct {
     base_offset: i64,
     leap_second_offset: i64,
     is_dst: bool,
+    is_leap_second: bool,
 };
 
 pub const Error = Allocator.Error || std.process.GetEnvVarOwnedError;
@@ -61,7 +62,7 @@ pub fn localize(timezone: TimeZone, date: DateTime) DateTime {
     const data: Localization = switch (timezone.data) {
         .tzif => |tzif| tzifLocalization(tzif, date),
         .tz_string => |tz_str| tzStringLocalization(tz_str, date),
-        .none => .{ .base_offset = 0, .leap_second_offset = 0, .is_dst = false },
+        .none => .{ .base_offset = 0, .leap_second_offset = 0, .is_dst = false, .is_leap_second = false },
         .windows => @panic(std.fmt.comptimePrint("TODO: implement localize for windows", .{})),
     };
 
@@ -159,8 +160,8 @@ fn tzifLocalization(tzif: TZif, date: DateTime) Localization {
     // LEAPCORR is zero if the first correction is one (1) or minus one (-1) and
     // is unspecified otherwise (which can happen only in files truncated at the
     // start (Section 6.1)).
-    const leap_second_offset: i32 = blk: {
-        if (tzif.header.leapcnt == 0) break :blk 0;
+    const leap_second_offset: i32, const is_leap_second: bool = blk: {
+        if (tzif.header.leapcnt == 0) break :blk .{ 0, false };
 
         if (data.leap_second_expiration) |exp| {
             if (exp < timestamp)
@@ -172,24 +173,32 @@ fn tzifLocalization(tzif: TZif, date: DateTime) Localization {
         // amount of leap seconds
         var prev_correction: i32 = 0;
         for (data.leap_second_records) |leap| {
-            if (leap.occurrence >= timestamp) break :blk prev_correction;
+            if (leap.occurrence >= timestamp)
+                break :blk .{ prev_correction, leap.occurrence == timestamp };
+
             prev_correction = leap.correction;
         }
-        break :blk prev_correction;
+        break :blk .{ prev_correction, false };
     };
 
     return .{
         .base_offset = base_offset,
         .leap_second_offset = leap_second_offset,
         .is_dst = is_dst,
+        .is_leap_second = is_leap_second,
     };
 }
 
 fn tzStringLocalization(tz_string: TZString, date: DateTime) Localization {
     if (tz_string.rule == null or tz_string.daylight_savings_time == null) return .{
         .base_offset = tz_string.standard.offset.toSecond(),
-        .leap_second_offset = 0,
+
+        // No way figure out dst
         .is_dst = false,
+
+        // No way to represent leap seconds
+        .leap_second_offset = 0,
+        .is_leap_second = false,
     };
 
     const Order = enum { lt, eq, gt };
@@ -251,8 +260,11 @@ fn tzStringLocalization(tz_string: TZString, date: DateTime) Localization {
 
     return .{
         .base_offset = base_offset.toSecond(),
-        .leap_second_offset = 0,
         .is_dst = is_dst,
+
+        // No way to represent leap seconds
+        .is_leap_second = false,
+        .leap_second_offset = 0,
     };
 }
 
@@ -281,15 +293,15 @@ test tzStringLocalization {
     };
 
     const jan1 = DateTime.build(.{ .year = 0, .month = .January, .day_of_month = 1 });
-    const jan1_loc: Localization = .{ .base_offset = 0, .leap_second_offset = 0, .is_dst = false };
+    const jan1_loc: Localization = .{ .base_offset = 0, .leap_second_offset = 0, .is_dst = false, .is_leap_second = false };
     try expectEqual(jan1_loc, tzStringLocalization(tzstring, jan1));
 
     const jan10 = DateTime.build(.{ .year = 0, .month = .January, .day_of_month = 10 });
-    const jan10_loc: Localization = .{ .base_offset = 3600, .leap_second_offset = 0, .is_dst = true };
+    const jan10_loc: Localization = .{ .base_offset = 3600, .leap_second_offset = 0, .is_dst = true, .is_leap_second = false };
     try expectEqual(jan10_loc, tzStringLocalization(tzstring, jan10));
 
     const jan20 = DateTime.build(.{ .year = 0, .month = .January, .day_of_month = 20 });
-    const jan20_loc: Localization = .{ .base_offset = 0, .leap_second_offset = 0, .is_dst = false };
+    const jan20_loc: Localization = .{ .base_offset = 0, .leap_second_offset = 0, .is_dst = false, .is_leap_second = false };
     try expectEqual(jan20_loc, tzStringLocalization(tzstring, jan20));
 }
 
@@ -307,5 +319,7 @@ const AnyWriter = std.io.AnyWriter;
 const Allocator = std.mem.Allocator;
 
 test {
-    _ = &find; // Ensure this compiles
+    // Ensure this compiles
+    _ = &find;
+    _ = &localize;
 }

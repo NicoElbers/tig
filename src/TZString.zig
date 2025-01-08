@@ -193,7 +193,6 @@ fn parseName(buf: []const u8) !struct { []const u8, usize } {
             '-',
             => {
                 if (state == .unquoted) {
-                    if (i < 2) return Error.InvalidName;
                     return .{ buf[0..i], i };
                 }
             },

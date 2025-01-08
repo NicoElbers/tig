@@ -29,14 +29,16 @@ pub const Rule = struct {
         date: Date,
         offset: Offset,
 
-        /// Returns a type safe representation that notably does not include
-        /// negative hours
-        pub fn resolve(do: DateOffset, year: Year) struct {
+        const Resolved = struct {
             doy: DayOfYear,
             hour: Hour,
             minute: Minute,
             second: Second,
-        } {
+        };
+
+        /// Returns a type safe representation that notably does not include
+        /// negative hours
+        pub fn resolve(do: DateOffset, year: Year) Resolved {
             const offset = do.offset;
 
             const start_doy_num = do.date.toDayOfYear(year).to();

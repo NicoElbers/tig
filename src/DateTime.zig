@@ -743,7 +743,7 @@ pub const MonthOfYear = enum(u4) {
     }
 
     pub fn fromChecked(month: u4) Error!MonthOfYear {
-        if (month < 0 or month > 11)
+        if (month < 1 or month > 12)
             return Error.UnrepresentableMonth;
 
         return fromUnchecked(month);

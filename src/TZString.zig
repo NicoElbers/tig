@@ -218,10 +218,7 @@ fn parseOffset(buf: []const u8) !struct { Offset, usize } {
     const hour: i9 = blk: {
         for (buf[start..], start..) |c, i| {
             switch (c) {
-                '0'...'9',
-                '+',
-                '-',
-                => {},
+                '0'...'9' => {},
                 ':' => {
                     const hour = std.fmt.parseInt(i9, buf[start..i], 10) catch return Error.InvalidOffset;
                     start = i + 1; // Skip :
@@ -229,6 +226,18 @@ fn parseOffset(buf: []const u8) !struct { Offset, usize } {
                     if (hour < -167 or hour > 167) return Error.InvalidOffset;
 
                     break :blk hour;
+                },
+                '+',
+                '-',
+                => {
+                    if (i == start) continue;
+
+                    const hour = std.fmt.parseInt(i9, buf[start..i], 10) catch return Error.InvalidOffset;
+                    start = i;
+
+                    if (hour < -167 or hour > 167) return Error.InvalidOffset;
+
+                    return .{ .{ .hour = hour }, start };
                 },
                 else => {
                     const hour = try std.fmt.parseInt(i9, buf[start..i], 10);

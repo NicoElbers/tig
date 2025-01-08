@@ -21,4 +21,8 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&datetime_unit_tests.step);
     test_step.dependOn(&timezone_unit_tests.step);
+
+    const check_step = b.step("check", "check the project");
+    check_step.dependOn(&datetime_unit_tests.step);
+    check_step.dependOn(&timezone_unit_tests.step);
 }

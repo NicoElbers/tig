@@ -1,3 +1,5 @@
+//! Specification: https://pubs.opengroup.org/onlinepubs/9799919799/
+
 standard: Zone,
 daylight_savings_time: ?Zone = null,
 rule: ?Rule = null,

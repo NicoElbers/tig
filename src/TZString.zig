@@ -134,19 +134,39 @@ pub const Rule = struct {
                     const first_of_month = o.month.ordinalNumberOfFirstOfMonth(is_leap_year);
                     const first_day_of_month = first_day.dowAfterNDays(first_of_month);
 
-                    const days_till_next_occurance = 7 +
+                    const days_till_first_occurance = @mod(7 -
                         @as(u9, first_day_of_month.toOrdinal()) +
-                        @as(u9, o.day_of_week.toOrdinal());
+                        @as(u9, o.day_of_week.toOrdinal()), 7);
 
-                    const days_till_first_occurance = @mod(days_till_next_occurance, 7);
+                    const days_till_occurance: u9 = blk: {
+                        const days_till_occurance_guess = @as(u9, o.occurence - 1) * 7 +
+                            days_till_first_occurance;
 
-                    const days_till_relevant_occurance = (o.occurence - 1) * 7 +
-                        days_till_first_occurance;
+                        if (days_till_occurance_guess <= o.month.daysInMonth(is_leap_year))
+                            break :blk days_till_occurance_guess;
 
-                    // TODO: remove this assert later, but it's useful for debugging
-                    assert(days_till_relevant_occurance < o.month.daysInMonth(is_leap_year));
+                        // ... 5 means "the last d day in month m" which may occur in either
+                        // the fourth or the fifth week).
+                        //
+                        // We extend this principle to "If the specified occurance falls
+                        // outside of the month, get the last day d in month m" to deal
+                        // with the potential case where someone tries to access day 42
+                        // of February
 
-                    return DayOfYear.from0(first_of_month + days_till_relevant_occurance, is_leap_year);
+                        const days_overflowed = days_till_occurance_guess -
+                            o.month.daysInMonth(is_leap_year);
+
+                        // we want to map:
+                        // - 1 => 7 (1 / 7 + 1)
+                        // - 7 => 7 (7 / 7 + 0)
+                        // - 8 => 2 (8 / 7 + 1)
+                        const weeks_overflowed = @divFloor(days_overflowed, 7) +
+                            @intFromBool(@mod(days_overflowed, 7) != 0);
+
+                        break :blk days_till_occurance_guess - 7 * weeks_overflowed;
+                    };
+
+                    return DayOfYear.from0(first_of_month + days_till_occurance, is_leap_year);
                 },
             };
         }

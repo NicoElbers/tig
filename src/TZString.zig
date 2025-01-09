@@ -43,10 +43,10 @@ pub const Rule = struct {
         pub fn resolve(do: DateOffset, year: Year) Resolved {
             const offset = do.offset;
 
-            const start_doy_num = do.date.toDayOfYear(year).to();
-            const days_in_year = year.getDaysInYear();
+            const start_doy_num: i11 = do.date.toDayOfYear(year).to();
+            const days_in_year: i11 = year.getDaysInYear();
 
-            const day_offset: i10, const hour_resolved: u5 = res: {
+            const day_offset: i11, const hour_resolved: u5 = res: {
                 const days_guess = @divFloor(offset.hour, 24);
                 const hour_guess = @mod(offset.hour, 24);
 
@@ -60,6 +60,7 @@ pub const Rule = struct {
                     .{ days_guess, @intCast(hour_guess) };
             };
 
+            // Add days_in_year since start may be 0 and offset may be negative
             const resolved_doy: u9 = @intCast(@mod(days_in_year + start_doy_num + day_offset, days_in_year));
 
             return .{

@@ -2553,35 +2553,35 @@ const fuzz = @import("fuzz.zig");
 test "Fuzz Years" {
     @disableInstrumentation();
 
-    try std.testing.fuzz(fuzz.fuzzYears, .{});
+    try std.testing.fuzz({}, fuzz.fuzzYears, .{});
 }
 test "Fuzz Set Years" {
     @disableInstrumentation();
 
-    try std.testing.fuzz(fuzz.fuzzSetYears, .{});
+    try std.testing.fuzz({}, fuzz.fuzzSetYears, .{});
 }
 test "Fuzz Months" {
     @disableInstrumentation();
 
-    try std.testing.fuzz(fuzz.fuzzMonths, .{});
+    try std.testing.fuzz({}, fuzz.fuzzMonths, .{});
 }
 test "Fuzz Constants" {
     @disableInstrumentation();
 
-    try std.testing.fuzz(fuzz.fuzzConstants, .{});
+    try std.testing.fuzz({}, fuzz.fuzzConstants, .{});
 }
 test "Fuzz Getters" {
     @disableInstrumentation();
 
-    try std.testing.fuzz(fuzz.fuzzGetters, .{});
+    try std.testing.fuzz({}, fuzz.fuzzGetters, .{});
 }
 test "Fuzz format" {
     @disableInstrumentation();
 
-    try std.testing.fuzz(fuzz.fuzzFormat, .{});
+    try std.testing.fuzz({}, fuzz.fuzzFormat, .{});
 }
 test "Fuzz validate" {
     @disableInstrumentation();
 
-    try std.testing.fuzz(fuzz.fuzzValidate, .{});
+    try std.testing.fuzz({}, fuzz.fuzzValidate, .{});
 }

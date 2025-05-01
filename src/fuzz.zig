@@ -31,7 +31,7 @@ fn getValidDate(r: Random) DateTime {
 }
 
 fn getYear(r: Random) Year {
-    const year: Year = @enumFromInt(r.int(i64));
+    const year: Year = @enumFromInt(r.int(i40));
     logFuzz("Year: {d}", .{year});
     return year;
 }
@@ -42,7 +42,7 @@ fn getValidYear(r: Random) Year {
     return year;
 }
 
-pub fn fuzzYears(input: []const u8) !void {
+pub fn fuzzYears(_: void, input: []const u8) !void {
     const seed: u64 = if (input.len >= 8)
         @bitCast(input[0..8].*)
     else blk: {
@@ -74,7 +74,7 @@ pub fn fuzzYears(input: []const u8) !void {
     }
 }
 
-pub fn fuzzSetYears(input: []const u8) !void {
+pub fn fuzzSetYears(_: void, input: []const u8) !void {
     const seed: u64 = if (input.len >= 8)
         @bitCast(input[0..8].*)
     else blk: {
@@ -103,7 +103,7 @@ pub fn fuzzSetYears(input: []const u8) !void {
     }
 }
 
-pub fn fuzzMonths(input: []const u8) !void {
+pub fn fuzzMonths(_: void, input: []const u8) !void {
     const seed: u64 = if (input.len >= 8)
         @bitCast(input[0..8].*)
     else blk: {
@@ -122,7 +122,7 @@ pub fn fuzzMonths(input: []const u8) !void {
     }
 }
 
-pub fn fuzzConstants(input: []const u8) !void {
+pub fn fuzzConstants(_: void, input: []const u8) !void {
     const seed: u64 = if (input.len >= 8)
         @bitCast(input[0..8].*)
     else blk: {
@@ -157,7 +157,7 @@ pub fn fuzzConstants(input: []const u8) !void {
     }
 }
 
-pub fn fuzzGetters(input: []const u8) !void {
+pub fn fuzzGetters(_: void, input: []const u8) !void {
     const seed: u64 = if (input.len >= 8)
         @bitCast(input[0..8].*)
     else blk: {
@@ -184,7 +184,7 @@ pub fn fuzzGetters(input: []const u8) !void {
     try expect(date.getSecond().isValid());
 }
 
-pub fn fuzzFormat(input: []const u8) !void {
+pub fn fuzzFormat(_: void, input: []const u8) !void {
     const seed: u64 = if (input.len >= 8)
         @bitCast(input[0..8].*)
     else blk: {
@@ -216,7 +216,7 @@ pub fn fuzzFormat(input: []const u8) !void {
     try date.getSecond().format("any", .{}, nullWriter);
 }
 
-pub fn fuzzValidate(input: []const u8) !void {
+pub fn fuzzValidate(_: void, input: []const u8) !void {
     const seed: u64 = if (input.len >= 8)
         @bitCast(input[0..8].*)
     else blk: {

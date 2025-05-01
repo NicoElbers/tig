@@ -6,7 +6,7 @@
     //
     // It is redundant to include "zig" in this name because it is already
     // within the Zig package namespace.
-    .name = "tig",
+    .name = .tig,
 
     // This is a [Semantic Version](https://semver.org/).
     // In a future version of Zig it will be used for package deduplication.
@@ -69,4 +69,6 @@
         //"LICENSE",
         //"README.md",
     },
+
+    .fingerprint = 0xcb503d8baf980764, // Changing this value has security implications
 }

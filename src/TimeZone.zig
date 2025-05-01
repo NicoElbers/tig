@@ -16,6 +16,29 @@ data: union(enum) {
     none,
 },
 
+/// Windows system time
+const SYSTEMTIME = extern struct {
+    wYear: windows.WORD,
+    wMonth: windows.WORD,
+    wDayOfWeek: windows.WORD,
+    wDay: windows.WORD,
+    wHour: windows.WORD,
+    wMinute: windows.WORD,
+    wSecond: windows.WORD,
+    wMilliseconds: windows.WORD,
+
+    pub fn getLocal() SYSTEMTIME {
+        var local_time: SYSTEMTIME = undefined;
+        GetLocalTime(&local_time);
+
+        return local_time;
+    }
+
+    extern "kernel32" fn GetLocalTime(LPSYSTEMTIME: *SYSTEMTIME) callconv(.winapi) void;
+
+    const windows = std.os.windows;
+};
+
 pub const Localization = struct {
     base_offset: i64,
     leap_second_offset: i64,
@@ -63,7 +86,23 @@ pub fn localize(timezone: TimeZone, date: DateTime) DateTime {
         .tzif => |tzif| tzifLocalization(tzif, date),
         .tz_string => |tz_str| tzStringLocalization(tz_str, date),
         .none => .{ .base_offset = 0, .leap_second_offset = 0, .is_dst = false, .is_leap_second = false },
-        .windows => @panic(std.fmt.comptimePrint("TODO: implement localize for windows", .{})),
+        .windows => {
+            if (@import("builtin").os.tag != .windows)
+                @panic("Windows timezone can only be used on windows");
+
+            const local_time: SYSTEMTIME = .getLocal();
+
+            const year: Year = .from(local_time.wYear);
+            const month: Month = .from(@intCast(local_time.wMonth));
+
+            return DateTime.gregorianEpoch
+                .setYear(year)
+                .addDays(month.ordinalNumberOfFirstOfMonth(year.isLeapYear()))
+                .addDays(local_time.wDay - 1) // wDay is 1 through 31, we need to normalize
+                .addHours(local_time.wHour)
+                .addMinutes(local_time.wMinute)
+                .addSeconds(local_time.wSecond);
+        },
     };
 
     return date.addSeconds(data.base_offset + data.leap_second_offset);
@@ -310,6 +349,9 @@ const TimeZone = @This();
 const DateTime = @import("DateTime.zig");
 const TZif = @import("TZif.zig");
 const TZString = @import("TZString.zig");
+
+const Year = DateTime.Year;
+const Month = DateTime.MonthOfYear;
 
 const std = @import("std");
 const log = std.log.scoped(.timezone);

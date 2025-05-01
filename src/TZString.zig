@@ -640,59 +640,69 @@ pub fn parse(alloc: Allocator, buf: []const u8) Error!struct { TZString, usize }
     }, start };
 }
 
-test parse {
-    const caaf = std.testing.checkAllAllocationFailures;
-    const expect = std.testing.expect;
-    const expectEqual = std.testing.expectEqual;
-    const expectEqualString = std.testing.expectEqualStrings;
-    const test_alloc = std.testing.allocator;
+// --- Testing ---
+const expectEqual = std.testing.expectEqualDeep;
+const expect = std.testing.expect;
 
-    const tst = struct {
-        fn eql(a: TZString, b: TZString) !void {
-            try expectEqualString(a.standard.name, b.standard.name);
-            try expectEqual(a.standard.offset, b.standard.offset);
-
-            try expect((a.daylight_savings_time == null) == (b.daylight_savings_time == null));
-
-            if (a.daylight_savings_time != null) {
-                const a_dst = a.daylight_savings_time.?;
-                const b_dst = b.daylight_savings_time.?;
-
-                try expectEqualString(a_dst.name, b_dst.name);
-                try expectEqual(a_dst.offset, b_dst.offset);
+const TestCase = struct {
+    input: []const u8,
+    fail: ?anyerror = null,
+    tz_string: ?TZString = null,
+    end_idx: ?usize = null,
+    resolve: ?struct {
+        year: Year,
+        start: Rule.DateOffset.Resolved,
+        end: Rule.DateOffset.Resolved,
+    } = null,
+};
+const tst = struct {
+    pub fn tst(case: TestCase) !void {
+        const tz_string, const end_idx = TZString.parse(std.testing.allocator, case.input) catch |err| {
+            if (case.fail) |expected_err| {
+                if (err == expected_err) return;
             }
+            return err;
+        };
+        defer tz_string.deinit(std.testing.allocator);
 
-            try expectEqual(a.rule, b.rule);
+        if (case.fail) |_| {
+            return error.ExpectedFailure;
         }
 
-        pub fn tst(alloc: Allocator, expected: TZString, str: []const u8, end_char: ?u8) !void {
-            const res, const end = try parse(alloc, str);
-            defer res.deinit(alloc);
-
-            try eql(expected, res);
-
-            if (end_char) |e| {
-                try expectEqual(e, str[end]);
-            } else {
-                try expectEqual(str.len, end);
-            }
+        if (case.tz_string) |expected_string| {
+            try expectEqual(expected_string, tz_string);
         }
-    }.tst;
 
-    // name: []const u8,
-    // offset: Offset,
-    try caaf(test_alloc, tst, .{
-        TZString{
+        if (case.end_idx) |expected_end| {
+            try expectEqual(expected_end, end_idx);
+        }
+
+        if (case.resolve) |resolve| {
+            try expect(tz_string.rule != null);
+            const rule = tz_string.rule.?;
+
+            const start = rule.start.resolve(resolve.year);
+            try expectEqual(resolve.start, start);
+
+            const end = rule.end.resolve(resolve.year);
+            try expectEqual(resolve.end, end);
+        }
+    }
+}.tst;
+
+test "Happy path" {
+    try tst(.{
+        .tz_string = .{
             .standard = .{
                 .name = "CET",
                 .offset = .{ .hour = -1 },
             },
         },
-        "CET-1\n",
-        '\n',
+        .input = "CET-1\n",
+        .end_idx = 5,
     });
-    try caaf(test_alloc, tst, .{
-        TZString{
+    try tst(.{
+        .tz_string = .{
             .standard = .{
                 .name = "CET",
                 .offset = .{ .hour = -1 },
@@ -702,107 +712,410 @@ test parse {
                 .offset = .{ .hour = 0 },
             },
         },
-        "CET-1CEST\n",
-        '\n',
+        .input = "CET-1CEST\n",
+        .end_idx = 9,
     });
-    try caaf(test_alloc, tst, .{
-        TZString{ .standard = .{
-            .name = "CET",
-            .offset = .{ .hour = -1 },
-        }, .daylight_savings_time = .{
-            .name = "CEST",
-            .offset = .{ .hour = 0 },
-        }, .rule = .{
-            .start = .{
-                .date = .{ .occurenceInMonth = .{
-                    .month = .March,
-                    .occurence = 5,
-                    .day_of_week = DayOfWeek.from0(0).prev(),
-                } },
-                .offset = .{ .hour = 2 },
+    try tst(.{
+        .tz_string = .{
+            .standard = .{
+                .name = "CET",
+                .offset = .{ .hour = -1 },
             },
-            .end = .{
-                .date = .{ .occurenceInMonth = .{
-                    .month = .October,
-                    .occurence = 5,
-                    .day_of_week = DayOfWeek.from0(0).prev(),
-                } },
-                .offset = .{ .hour = 2 },
+            .daylight_savings_time = .{
+                .name = "CEST",
+                .offset = .{ .hour = 0 },
             },
-        } },
-        "CET-1CEST,M3.5.0,M10.5.0\n",
-        '\n',
+            .rule = .{
+                .start = .{
+                    .date = .{ .occurenceInMonth = .{
+                        .month = .March,
+                        .occurence = 5,
+                        .day_of_week = DayOfWeek.from0(0).prev(),
+                    } },
+                    .offset = .{ .hour = 2 },
+                },
+                .end = .{
+                    .date = .{ .occurenceInMonth = .{
+                        .month = .October,
+                        .occurence = 5,
+                        .day_of_week = DayOfWeek.from0(0).prev(),
+                    } },
+                    .offset = .{ .hour = 2 },
+                },
+            },
+        },
+        .input = "CET-1CEST,M3.5.0,M10.5.0\n",
+        .end_idx = 24,
     });
-    try caaf(test_alloc, tst, .{
-        TZString{ .standard = .{
-            .name = "CET",
-            .offset = .{ .hour = -1 },
-        }, .daylight_savings_time = .{
-            .name = "CEST",
-            .offset = .{ .hour = 0 },
-        }, .rule = .{
-            .start = .{
-                .date = .{ .occurenceInMonth = .{
-                    .month = .March,
-                    .occurence = 5,
-                    .day_of_week = DayOfWeek.from0(0).prev(),
-                } },
-                .offset = .{ .hour = 2, .minute = 4, .second = 20 },
+    try tst(.{
+        .tz_string = .{
+            .standard = .{
+                .name = "CET",
+                .offset = .{ .hour = -1 },
             },
-            .end = .{
-                .date = .{ .occurenceInMonth = .{
-                    .month = .October,
-                    .occurence = 5,
-                    .day_of_week = DayOfWeek.from0(0).prev(),
-                } },
-                .offset = .{ .hour = 3 },
+            .daylight_savings_time = .{
+                .name = "CEST",
+                .offset = .{ .hour = 0 },
             },
-        } },
-        "CET-1CEST,M3.5.0/2:4:20,M10.5.0/3\n",
-        '\n',
-    });
-
-    try caaf(test_alloc, tst, .{
-        TZString{ .standard = .{
-            .name = "CET",
-            .offset = .{ .hour = -1 },
-        }, .daylight_savings_time = .{
-            .name = "CEST",
-            .offset = .{ .hour = 20 },
-        }, .rule = .{
-            .start = .{
-                .date = .{ .zero_julian = 0 },
-                .offset = .{ .hour = 2, .minute = 4, .second = 20 },
+            .rule = .{
+                .start = .{
+                    .date = .{ .occurenceInMonth = .{
+                        .month = .March,
+                        .occurence = 5,
+                        .day_of_week = DayOfWeek.from0(0).prev(),
+                    } },
+                    .offset = .{ .hour = 2, .minute = 4, .second = 20 },
+                },
+                .end = .{
+                    .date = .{ .occurenceInMonth = .{
+                        .month = .October,
+                        .occurence = 5,
+                        .day_of_week = DayOfWeek.from0(0).prev(),
+                    } },
+                    .offset = .{ .hour = 3 },
+                },
             },
-            .end = .{
-                .date = .{ .julian = 69 },
-                .offset = .{ .hour = 3 },
-            },
-        } },
-        "CET-1CEST+20,0/2:4:20,J69/3",
-        null,
+        },
+        .input = "CET-1CEST,M3.5.0/2:4:20,M10.5.0/3\n",
+        .end_idx = 33,
     });
 
-    try caaf(test_alloc, tst, .{
-        TZString{ .standard = .{
-            .name = "+69CET",
-            .offset = .{ .hour = -1 },
-        }, .daylight_savings_time = .{
-            .name = "-8CEST",
-            .offset = .{ .hour = 20 },
-        }, .rule = .{
+    try tst(.{
+        .tz_string = .{
+            .standard = .{
+                .name = "CET",
+                .offset = .{ .hour = -1 },
+            },
+            .daylight_savings_time = .{
+                .name = "CEST",
+                .offset = .{ .hour = 20 },
+            },
+            .rule = .{
+                .start = .{
+                    .date = .{ .zero_julian = 0 },
+                    .offset = .{ .hour = 2, .minute = 4, .second = 20 },
+                },
+                .end = .{
+                    .date = .{ .julian = 69 },
+                    .offset = .{ .hour = 3 },
+                },
+            },
+        },
+        .input = "CET-1CEST+20,0/2:4:20,J69/3",
+        .end_idx = 27,
+    });
+
+    try tst(.{
+        .tz_string = .{
+            .standard = .{
+                .name = "+69CET",
+                .offset = .{ .hour = -1 },
+            },
+            .daylight_savings_time = .{
+                .name = "-8CEST",
+                .offset = .{ .hour = 20 },
+            },
+            .rule = .{
+                .start = .{
+                    .date = .{ .zero_julian = 0 },
+                    .offset = .{ .hour = 2, .minute = 4 },
+                },
+                .end = .{
+                    .date = .{ .julian = 69 },
+                    .offset = .{ .hour = 3, .minute = 59, .second = 59 },
+                },
+            },
+        },
+        .input = "<+69CET>-1<-8CEST>+20,0/2:4,J69/3:59:59",
+        .end_idx = 39,
+    });
+}
+
+// Funky paths
+test "Very long designation" {
+    try tst(.{
+        .input = "HelloWorld" ** 1000 ++ "Wow0",
+        .tz_string = .{
+            .standard = .{
+                .name = "HelloWorld" ** 1000 ++ "Wow",
+                .offset = .{ .hour = 0 },
+            },
+        },
+    });
+}
+
+test "Very big offsets" {
+    try tst(.{
+        .input = "A167:59:59B0",
+        .tz_string = .{
+            .standard = .{
+                .name = "A",
+                .offset = .{ .hour = 167, .minute = 59, .second = 59 },
+            },
+            .daylight_savings_time = .{
+                .name = "B",
+                .offset = .{ .hour = 0 },
+            },
+        },
+    });
+
+    try tst(.{
+        .input = "A-167:59:59",
+        .tz_string = .{
+            .standard = .{
+                .name = "A",
+                .offset = .{ .hour = -167, .minute = 59, .second = 59 },
+            },
+        },
+    });
+}
+
+test "Invalid offsets" {
+    try tst(.{
+        .input = "A168",
+        .fail = error.InvalidOffset,
+    });
+
+    try tst(.{
+        .input = "A-168",
+        .fail = error.InvalidOffset,
+    });
+
+    try tst(.{
+        .input = "A9999",
+        .fail = error.InvalidOffset,
+    });
+
+    try tst(.{
+        .input = "A-9999",
+        .fail = error.InvalidOffset,
+    });
+}
+test "empty designations" {
+    try tst(.{
+        .input = "-00-00",
+        .tz_string = .{
+            .standard = .{
+                .name = "",
+                .offset = .{ .hour = 0 },
+            },
+            .daylight_savings_time = .{
+                .name = "",
+                .offset = .{ .hour = 0 },
+            },
+        },
+    });
+
+    try tst(.{
+        .input = "<>-00<>-00",
+        .tz_string = .{
+            .standard = .{
+                .name = "",
+                .offset = .{ .hour = 0 },
+            },
+            .daylight_savings_time = .{
+                .name = "",
+                .offset = .{ .hour = 0 },
+            },
+        },
+    });
+}
+test "Out of bounds dates" {
+    try tst(.{
+        .input = "<>0<>0,J0,0",
+        .fail = error.InvalidDate,
+    });
+
+    try tst(.{
+        .input = "<>0<>0,J366,0",
+        .fail = error.InvalidDate,
+    });
+
+    try tst(.{
+        .input = "<>0<>0,366,0",
+        .fail = error.InvalidDate,
+    });
+
+    // Occurance in month months
+    try tst(.{
+        .input = "<>0<>0,M0.1.1,0",
+        .fail = error.InvalidDate,
+    });
+    try tst(.{
+        .input = "<>0<>0,M13.1.1,0",
+        .fail = error.InvalidDate,
+    });
+    try tst(.{
+        .input = "<>0<>0,M9999.1.1,0",
+        .fail = error.InvalidDate,
+    });
+
+    //  Occurance in month Occurance
+    try tst(.{
+        .input = "<>0<>0,M1.0.1,0",
+        .fail = error.InvalidDate,
+    });
+    try tst(.{
+        .input = "<>0<>0,M1.6.1,0",
+        .fail = error.InvalidDate,
+    });
+    try tst(.{
+        .input = "<>0<>0,M1.9999,0",
+        .fail = error.InvalidDate,
+    });
+
+    // Occurance in month days
+    try tst(.{
+        .input = "<>0<>0,M1.1.7,0",
+        .fail = error.InvalidDate,
+    });
+    try tst(.{
+        .input = "<>0<>0,M1.1.9999,0",
+        .fail = error.InvalidDate,
+    });
+}
+
+test "Out of bounds occurance in month" {
+    // Taken from Europe/Amsterdam
+    // October 2024 did not have 5 Sundays
+
+    // The 5th Sunday of March in 2024 was March 31st
+    const march_31 = DateTime.build(.{ .year = 2024, .month = .March, .day_of_month = 31 });
+
+    // The would be 5th sunday of October is November 3rd, but this maps to
+    // October 27th according to spec
+    const october_27 = DateTime.build(.{ .year = 2024, .month = .October, .day_of_month = 27 });
+
+    try tst(.{
+        .input = "CET-1CEST,M3.5.0,M10.5.0/3",
+        .resolve = .{
+            .year = Year.from(2024),
             .start = .{
-                .date = .{ .zero_julian = 0 },
-                .offset = .{ .hour = 2, .minute = 4 },
+                .doy = march_31.getDayOfYear(),
+                .hour = Hour.from(2),
+                .minute = Minute.from(0),
+                .second = Second.from(0),
             },
             .end = .{
-                .date = .{ .julian = 69 },
-                .offset = .{ .hour = 3, .minute = 59, .second = 59 },
+                .doy = october_27.getDayOfYear(),
+                .hour = Hour.from(3),
+                .minute = Minute.from(0),
+                .second = Second.from(0),
             },
-        } },
-        "<+69CET>-1<-8CEST>+20,0/2:4,J69/3:59:59",
-        null,
+        },
     });
+}
+
+test "Out of year occurance in month" {
+    // Artificial example
+
+    // In 2024, there are only 4 saturdays
+    const december_28 = DateTime.build(.{ .year = 2024, .month = .December, .day_of_month = 28 });
+
+    try tst(.{
+        .input = "<>-1<>,M12.5.6,0",
+        .resolve = .{
+            .year = Year.from(2024),
+            .start = .{
+                .doy = december_28.getDayOfYear(),
+                .hour = Hour.from(2),
+                .minute = Minute.from(0),
+                .second = Second.from(0),
+            },
+            .end = .{
+                .doy = DayOfYear.from0(0, true),
+                .hour = Hour.from(2),
+                .minute = Minute.from(0),
+                .second = Second.from(0),
+            },
+        },
+    });
+}
+
+test "Very big rule offsets" {
+    // Artificial examples
+
+    const december_31_24 = DateTime.build(.{ .year = 2024, .month = .December, .day_of_month = 31 });
+    const january_1_26 = DateTime.build(.{ .year = 2026, .month = .January, .day_of_month = 1 });
+    try tst(.{
+        .input = "<>0<>0,0/-1,J365/25",
+        .resolve = .{
+            .year = Year.from(2024),
+            .start = .{
+                .doy = december_31_24.getDayOfYear(),
+                .hour = Hour.from(23),
+                .minute = Minute.from(0),
+                .second = Second.from(0),
+            },
+            .end = .{
+                .doy = january_1_26.getDayOfYear(),
+                .hour = Hour.from(1),
+                .minute = Minute.from(0),
+                .second = Second.from(0),
+            },
+        },
+    });
+
+    // 167 hours == 6 days and 23 hours
+    const december_25_24 = DateTime.build(.{ .year = 2024, .month = .December, .day_of_month = 25 });
+    const january_6_26 = DateTime.build(.{ .year = 2026, .month = .January, .day_of_month = 6 });
+
+    try tst(.{
+        .input = "<>0<>0,0/-167:59:59,J365/167:59:59",
+        .resolve = .{
+            .year = Year.from(2024),
+            .start = .{
+                .doy = december_25_24.getDayOfYear(),
+                .hour = Hour.from(1),
+                .minute = Minute.from(59),
+                .second = Second.from(59),
+            },
+            .end = .{
+                .doy = january_6_26.getDayOfYear(),
+                .hour = Hour.from(23),
+                .minute = Minute.from(59),
+                .second = Second.from(59),
+            },
+        },
+    });
+}
+
+test "incomplete strings" {
+    try tst(.{
+        .input = "",
+        .fail = error.InvalidTzString,
+    });
+
+    try tst(.{
+        .input = "Hello",
+        .fail = error.InvalidTzString,
+    });
+
+    try tst(.{
+        .input = "+",
+        .fail = error.InvalidOffset,
+    });
+
+    try tst(.{
+        .input = "-",
+        .fail = error.InvalidOffset,
+    });
+
+    try tst(.{
+        .input = "Hello-",
+        .fail = error.InvalidOffset,
+    });
+
+    try tst(.{
+        .input = "Hello+",
+        .fail = error.InvalidOffset,
+    });
+}
+
+test {
+    // Compile errors
+    _ = &parse;
+    _ = &deinit;
 }
 
 const DateTime = @import("DateTime.zig");

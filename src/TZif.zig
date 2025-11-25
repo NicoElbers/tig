@@ -37,80 +37,56 @@ pub const TZifHeader = struct {
     typecnt: u32,
     charcnt: u32,
 
-    pub const Error = error{
-        InvalidHeader,
-    };
+    pub const Error = Reader.Error || error{InvalidHeader};
 
     /// Parses TZif header. Assumes the next byte the reader reads is the first byte
     /// of the magic bytes
-    fn parse(buffer: *const [44]u8) Error!TZifHeader {
-        var buf: []const u8 = buffer;
-
+    fn parse(r: *Reader) Error!TZifHeader {
         // Verify magic
         {
             const magic = "TZif";
-            if (!std.mem.eql(u8, magic, buf[0..4])) return Error.InvalidHeader;
-            buf = buf[4..];
+            if (!std.mem.eql(u8, magic, try r.take(magic.len))) return error.InvalidHeader;
         }
 
-        const version = Version.parse(buf[0]);
-        buf = buf[1..];
+        const version = Version.parse(try r.takeByte());
 
         // 15 Unused bytes
-        buf = buf[15..];
+        try r.discardAll(15);
 
         // A four-octet unsigned integer specifying the number of UT/local indicators contained in
         // the data block -- MUST either be zero or equal to "typecnt".
-        const isutcnt = blk: {
-            defer buf = buf[4..];
-            break :blk mem.readInt(u32, buf[0..4], .big);
-        };
+        const isutcnt = try r.takeInt(u32, .big);
 
         // A four-octet unsigned integer specifying the number of standard/wall indicators
         // contained in the data block -- MUST either be zero or equal to "typecnt".
-        const isstdcnt = blk: {
-            defer buf = buf[4..];
-            break :blk mem.readInt(u32, buf[0..4], .big);
-        };
+        const isstdcnt = try r.takeInt(u32, .big);
 
         // A four-octet unsigned integer specifying the number of leap-second records contained
         // in the data block.
-        const leapcnt = blk: {
-            defer buf = buf[4..];
-            break :blk mem.readInt(u32, buf[0..4], .big);
-        };
+        const leapcnt = try r.takeInt(u32, .big);
 
         // A four-octet unsigned integer specifying the number of transition times contained in
         // the data block.
-        const timecnt = blk: {
-            defer buf = buf[4..];
-            break :blk mem.readInt(u32, buf[0..4], .big);
-        };
+        const timecnt = try r.takeInt(u32, .big);
 
         // A four-octet unsigned integer specifying the number of local time type records
         // contained in the data block -- MUST NOT be zero. (Although local time type records convey no
         // useful information in files that have non-empty TZ strings but no transitions, at least one such
         // record is nevertheless required because many TZif readers reject files that have zero time
         // types.)
-        const typecnt = blk: {
-            defer buf = buf[4..];
-            break :blk mem.readInt(u32, buf[0..4], .big);
-        };
+        const typecnt = try r.takeInt(u32, .big);
 
         // A four-octet unsigned integer specifying the total number of octets used by the set of
         // time zone designations contained in the data block -- MUST NOT be zero. The count includes
         // the trailing NUL (0x00) octet at the end of the last time zone designation.
-        const charcnt = blk: {
-            defer buf = buf[4..];
-            break :blk mem.readInt(u32, buf[0..4], .big);
-        };
+        const charcnt = try r.takeInt(u32, .big);
 
         // Since we did not have the entire header before, we can only check isutcnt,
         // isstdcnt, typecnt and charcnt invariants now.
-        if (isutcnt != 0 and isutcnt != typecnt) return Error.InvalidHeader;
-        if (isstdcnt != 0 and isstdcnt != typecnt) return Error.InvalidHeader;
+        if (isutcnt != 0 and isutcnt != typecnt) return error.InvalidHeader;
+        if (isstdcnt != 0 and isstdcnt != typecnt) return error.InvalidHeader;
         if (typecnt == 0) log.warn("typecnt is 0, this is against RFC 9636", .{});
-        if (charcnt == 0) return Error.InvalidHeader;
+        if (charcnt == 0) return error.InvalidHeader;
 
         return .{
             .version = version,
@@ -156,12 +132,15 @@ pub const TZifHeader = struct {
     }
 
     /// Skip the amount of bytes that this headers data block describes
-    pub fn skipDataBlock(header: TZifHeader, r: AnyReader) void {
+    pub fn skipDataBlock(header: TZifHeader, r: *Reader) error{ReadFailed}!void {
         const size = header.dataBlockSize();
 
-        // Since we're skipping we don't really care if we hit EOF, thus we discard
-        // this
-        r.skipBytes(size, .{}) catch {};
+        r.discardAll(size) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            // Since we're skipping we don't really care if we hit EOF, thus we
+            // discard this
+            error.EndOfStream => {},
+        };
     }
 };
 
@@ -222,12 +201,10 @@ pub const TZifDataBlock = struct {
         }
     }
 
-    pub fn parse(alloc: Allocator, header: TZifHeader, buffer: []const u8) Error!TZifDataBlock {
-        if (buffer.len <= header.dataBlockSize()) return Error.InvalidDataBlock;
-
+    // TODO: fix error set
+    pub fn parse(alloc: Allocator, header: TZifHeader, r: *Reader) !TZifDataBlock {
         // We know the exact size, so ensure we also consume the exact size
-        var buf: []const u8 = buffer[0..header.dataBlockSize()];
-        defer assert(buf.len == 0);
+        const seek_before = r.seek;
 
         const time_size = header.version.timeSize();
         assert(time_size == 4 or time_size == 8);
@@ -239,11 +216,10 @@ pub const TZifDataBlock = struct {
             // Parse transition times
             for (0..header.timecnt) |i| {
                 const timestamp: i64 = switch (time_size) {
-                    4 => @as(i64, mem.readInt(i32, buf[0..4], .big)),
-                    8 => mem.readInt(i64, buf[0..8], .big),
-                    else => return Error.InvalidDataBlock,
+                    4 => try r.takeInt(i32, .big),
+                    8 => try r.takeInt(i64, .big),
+                    else => unreachable,
                 };
-                buf = buf[time_size..];
 
                 if (timestamp < -(comptime std.math.powi(i64, 2, 59) catch unreachable))
                     log.warn("Transition timestamp < -2^59, this is against RFC 9636", .{});
@@ -253,11 +229,10 @@ pub const TZifDataBlock = struct {
 
             // Parse transition types
             for (0..header.timecnt) |i| {
-                const idx: u8 = buf[0];
-                buf = buf[1..];
+                const idx: u8 = try r.takeByte();
 
                 if (idx >= header.typecnt)
-                    return Error.InvalidDataBlock;
+                    return error.InvalidDataBlock;
 
                 transition_times[i].idx = idx;
             }
@@ -272,8 +247,7 @@ pub const TZifDataBlock = struct {
 
             // Parse local time type records
             for (0..header.typecnt) |i| {
-                const offset = mem.readInt(i32, buf[0..4], .big);
-                buf = buf[4..];
+                const offset = try r.takeInt(i32, .big);
 
                 if (offset == std.math.minInt(i32))
                     log.warn("Local time record offset is -2^59, this is against RFC 9636", .{});
@@ -282,20 +256,18 @@ pub const TZifDataBlock = struct {
                     log.warn("Local time record offset 26 < offset < -25, this is against RFC 9636", .{});
 
                 const daylight_saving_time = dst: {
-                    const byte = buf[0];
-                    buf = buf[1..];
+                    const byte = try r.takeByte();
 
                     break :dst switch (byte) {
                         0 => false,
                         1 => true,
-                        else => return Error.InvalidDataBlock,
+                        else => return error.InvalidDataBlock,
                     };
                 };
 
-                const designation_idx = buf[0];
-                buf = buf[1..];
+                const designation_idx = try r.takeByte();
 
-                if (designation_idx >= header.charcnt) return Error.InvalidDataBlock;
+                if (designation_idx >= header.charcnt) return error.InvalidDataBlock;
 
                 local_time_type_records[i] = .{
                     .offset = offset,
@@ -311,12 +283,9 @@ pub const TZifDataBlock = struct {
         const timezone_designation: []const u8 = blk: {
             assert(header.charcnt > 0);
 
-            const timezone_designation = try alloc.alloc(u8, header.charcnt);
-            errdefer alloc.free(timezone_designation);
-
             // Parse Time zone designations
-            @memcpy(timezone_designation, buf[0..header.charcnt]);
-            buf = buf[header.charcnt..];
+            const timezone_designation = try r.readAlloc(alloc, header.charcnt);
+            errdefer alloc.free(timezone_designation);
 
             // Must be a null terminated string
             if (timezone_designation[header.charcnt - 1] != 0)
@@ -332,15 +301,13 @@ pub const TZifDataBlock = struct {
 
             // Parse leap second records
             for (0..header.leapcnt) |i| {
-                const occurrence = switch (time_size) {
-                    4 => @as(i64, mem.readInt(i32, buf[0..4], .big)),
-                    8 => mem.readInt(i64, buf[0..8], .big),
-                    else => return Error.InvalidDataBlock,
+                const occurrence: i64 = switch (time_size) {
+                    4 => try r.takeInt(i32, .big),
+                    8 => try r.takeInt(i64, .big),
+                    else => unreachable,
                 };
-                buf = buf[time_size..];
 
-                const correction = mem.readInt(i32, buf[0..4], .big);
-                buf = buf[4..];
+                const correction = try r.takeInt(i32, .big);
 
                 leap_second_records[i] = .{
                     .occurrence = occurrence,
@@ -374,8 +341,7 @@ pub const TZifDataBlock = struct {
 
             // Parse standard/wall indicators
             for (0..header.isstdcnt) |i| {
-                const byte = buf[0];
-                buf = buf[1..];
+                const byte = try r.takeByte();
 
                 const indicator: StdWallIndicator = switch (byte) {
                     0 => .wall,
@@ -398,8 +364,7 @@ pub const TZifDataBlock = struct {
 
             // Parse UT/local indicators
             for (0..header.isutcnt) |i| {
-                const byte = buf[0];
-                buf = buf[1..];
+                const byte = try r.takeByte();
 
                 const indicator: UtLocalIndicator = switch (byte) {
                     0 => .local,
@@ -421,6 +386,7 @@ pub const TZifDataBlock = struct {
         };
         errdefer if (ut_local_indicators) |utl| alloc.free(utl);
 
+        assert(r.seek == seek_before + header.dataBlockSize());
         return .{
             .transition_times = transition_times,
             .local_time_type_records = local_time_type_records,
@@ -444,19 +410,28 @@ pub const TZifFooter = struct {
         self.tz_string.deinit(alloc);
     }
 
-    pub fn parse(alloc: Allocator, buf: []const u8) Error!TZifFooter {
+    pub const ParseFooterError = Allocator.Error || error{ ReadFailed, InvalidFooter };
+    pub fn parse(alloc: Allocator, r: *Reader) ParseFooterError!TZifFooter {
         {
-            const byte = buf[0];
+            const byte = r.takeByte() catch |err| switch (err) {
+                error.ReadFailed => return error.ReadFailed,
+                error.EndOfStream => return error.InvalidFooter,
+            };
             if (byte != '\n') return Error.InvalidFooter;
         }
 
-        const tz_string, const end = try TZString.parse(alloc, buf[1..]);
-
-        if (end + 1 >= buf.len or buf[end + 1] != '\n') return Error.InvalidFooter;
-
-        return .{
-            .tz_string = tz_string,
+        const tz_string = TZString.parse(alloc, r) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.OutOfMemory => return error.OutOfMemory,
+            error.InvalidTzString => return error.InvalidFooter,
         };
+
+        if ('\n' != r.takeByte() catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.EndOfStream => 0,
+        }) return error.InvalidFooter;
+
+        return .{ .tz_string = tz_string };
     }
 };
 
@@ -473,7 +448,8 @@ pub fn deinit(self: TZif, alloc: Allocator) void {
 }
 
 /// Do a best attempt at finding the systems time zone information file.
-pub fn findTzif(alloc: Allocator) Allocator.Error!?TZif {
+const FindError = Allocator.Error || Io.Cancelable || Io.UnexpectedError;
+pub fn findTzif(alloc: Allocator, io: Io) FindError!?TZif {
     switch (@import("builtin").os.tag) {
         .windows => return null,
         else => {},
@@ -481,33 +457,48 @@ pub fn findTzif(alloc: Allocator) Allocator.Error!?TZif {
 
     // Try hardcoded paths
     for (potential_tzif_paths) |path| {
-        const file = fs.openFileAbsoluteZ(path, .{}) catch continue;
-        defer file.close();
+        const file = File.openAbsolute(io, path, .{}) catch |err| switch (err) {
+            error.Canceled => return error.Canceled,
 
-        // Biggest tzif file I can find on my machine is 4.4k. So we limit at
-        // 1 Mb
-        const buf = switch (@import("builtin").os.tag) {
-            .wasi => file.readToEndAlloc(alloc, 0x100000) catch |err| switch (err) {
-                error.OutOfMemory => return ParseError.OutOfMemory,
-                else => continue,
-            },
-            else => std.posix.mmap(
-                null,
-                file.getEndPos() catch continue,
-                std.posix.PROT.READ,
-                .{ .TYPE = .PRIVATE },
-                file.handle,
-                0,
-            ) catch continue,
+            error.SystemResources,
+            error.ProcessFdQuotaExceeded,
+            error.SystemFdQuotaExceeded,
+            => return error.OutOfMemory,
+
+            error.NameTooLong,
+            error.BadPathName,
+            error.FileNotFound,
+            error.NoDevice,
+            error.NetworkNotFound,
+            error.ProcessNotFound,
+            error.IsDir,
+            error.AccessDenied,
+            error.PermissionDenied,
+            error.SymLinkLoop,
+            error.FileTooBig,
+            error.SharingViolation,
+            error.PipeBusy,
+            error.AntivirusInterference,
+            error.DeviceBusy,
+            => continue,
+
+            error.NoSpaceLeft,
+            error.FileLocksNotSupported,
+            error.NotDir,
+            error.FileBusy,
+            error.PathAlreadyExists,
+            error.WouldBlock,
+            error.Unexpected,
+            => return error.Unexpected,
         };
-        defer switch (@import("builtin").os.tag) {
-            .wasi => alloc.free(buf),
-            else => std.posix.munmap(buf),
-        };
+        defer file.close(io);
+
+        var read_buf: [4096]u8 = undefined;
+        var file_reader = file.reader(io, &read_buf);
 
         // Ignore any invalid tzif files
-        const tzif = parseTzif2(alloc, buf) catch |err| switch (err) {
-            error.OutOfMemory => return ParseError.OutOfMemory,
+        const tzif = parseTzif2(alloc, &file_reader.interface) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
             else => continue,
         };
 
@@ -521,7 +512,9 @@ pub const ParseError = TZifHeader.Error || TZifDataBlock.Error || TZifFooter.Err
 
 /// A tzif parser based on RFC 9636, modified slightly to be more permissive
 /// to bad input. Any out of spec modifications will result in a logged warning.
-pub fn parseTzif(alloc: Allocator, r: AnyReader) ParseError!TZif {
+pub fn parseTzif2(alloc: Allocator, r: *Reader) ParseError!TZif {
+    assert(r.buffer.len >= 44);
+
     const header = blk: {
         var h1 = try TZifHeader.parse(r);
 
@@ -534,19 +527,21 @@ pub fn parseTzif(alloc: Allocator, r: AnyReader) ParseError!TZif {
         // The first header, which is for the v1 data block, still says the
         // version is v2. So we manually override it.
         h1.version = .@"1";
-        h1.skipDataBlock(r);
+        try h1.skipDataBlock(r);
 
         // At this point we saw a valid first header, so we can assume this is
-        // a TZif fil
-        const h2 = try TZifHeader.parse(r);
+        // a TZif file
+        var h2 = try TZifHeader.parse(r);
 
-        if (h2.version != .@"2+")
+        if (h2.version != .@"2+") {
             log.warn("Second header does not indicate v2+, this is against RFC 9636", .{});
+            h2.version = .@"2+";
+        }
 
         break :blk h2;
     };
 
-    const data_block = try TZifDataBlock.parse(alloc, r, header);
+    const data_block = try TZifDataBlock.parse(alloc, header, r);
     errdefer data_block.deinit(alloc);
 
     if (header.version == .@"1") {
@@ -575,70 +570,6 @@ pub fn parseTzif(alloc: Allocator, r: AnyReader) ParseError!TZif {
     return parsed;
 }
 
-pub fn parseTzif2(alloc: Allocator, buffer: []const u8) ParseError!TZif {
-    var buf = buffer;
-
-    const header = blk: {
-        if (buf.len <= 44) return ParseError.InvalidHeader;
-        var h1 = try TZifHeader.parse(buf[0..44]);
-        buf = buf[44..];
-
-        // We have a v1 header, we need to actually use it
-        if (h1.version == .@"1") break :blk h1;
-
-        assert(h1.version == .@"2+");
-
-        // We have a v2+ header, we can skip the v1 header and
-        // The first header, which is for the v1 data block, still says the
-        // version is v2. So we manually override it.
-        h1.version = .@"1";
-        buf = buf[h1.dataBlockSize()..];
-
-        // At this point we saw a valid first header, so we can assume this is
-        // a TZif fil
-        if (buf.len <= 44) return ParseError.InvalidHeader;
-        var h2 = try TZifHeader.parse(buf[0..44]);
-        buf = buf[44..];
-
-        if (h2.version != .@"2+") {
-            log.warn("Second header does not indicate v2+, this is against RFC 9636", .{});
-            h2.version = .@"2+";
-        }
-
-        break :blk h2;
-    };
-
-    const data_block = try TZifDataBlock.parse(alloc, header, buf);
-    errdefer data_block.deinit(alloc);
-
-    buf = buf[header.dataBlockSize()..];
-
-    if (header.version == .@"1") {
-        const parsed: TZif = .{
-            .header = header,
-            .data_block = data_block,
-            .footer = null,
-        };
-
-        // Final sanity check
-        assert(parsed.isValid());
-
-        return parsed;
-    }
-
-    const footer = try TZifFooter.parse(alloc, buf);
-
-    const parsed: TZif = .{
-        .header = header,
-        .data_block = data_block,
-        .footer = footer,
-    };
-
-    // Final sanity check
-    assert(parsed.isValid());
-    return parsed;
-}
-
 pub fn isValid(tzif: TZif) bool {
     const header = tzif.header;
     const data = tzif.data_block;
@@ -648,16 +579,16 @@ pub fn isValid(tzif: TZif) bool {
     // contained in the data block -- MUST either be zero or equal to "typecnt".
     if (header.isutcnt != 0 and
         (header.isutcnt != header.typecnt or
-        data.ut_local_indicators == null or
-        header.isutcnt != data.ut_local_indicators.?.len)) return false;
+            data.ut_local_indicators == null or
+            header.isutcnt != data.ut_local_indicators.?.len)) return false;
 
     // isstdcnt
     // A four-octet unsigned integer specifying the number of standard/wall indicators
     // contained in the data block -- MUST either be zero or equal to "typecnt".
     if (header.isstdcnt != 0 and
         (header.isstdcnt != header.typecnt or
-        data.std_wall_indicators == null or
-        header.isstdcnt != data.std_wall_indicators.?.len)) return false;
+            data.std_wall_indicators == null or
+            header.isstdcnt != data.std_wall_indicators.?.len)) return false;
 
     // leapcnt
     // A four-octet unsigned integer specifying the number of leap-second records
@@ -898,8 +829,10 @@ const fs = std.fs;
 const fmt = std.fmt;
 const mem = std.mem;
 
-const File = fs.File;
-const AnyReader = std.io.AnyReader;
+const Io = std.Io;
+const Reader = Io.Reader;
+const Writer = Io.Writer;
+const File = Io.File;
 const OpenError = std.posix.OpenError;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const Allocator = std.mem.Allocator;

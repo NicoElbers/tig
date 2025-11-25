@@ -4,25 +4,18 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const datetime_tests = b.addTest(.{
-        .root_source_file = b.path("src/DateTime.zig"),
+    const mod = b.addModule("tig", .{
+        .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
-    const datetime_unit_tests = b.addRunArtifact(datetime_tests);
 
-    const timezone_tests = b.addTest(.{
-        .root_source_file = b.path("src/TimeZone.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const timezone_unit_tests = b.addRunArtifact(timezone_tests);
+    const tests = b.addTest(.{ .root_module = mod });
+    const run_tests = b.addRunArtifact(tests);
 
     const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&datetime_unit_tests.step);
-    test_step.dependOn(&timezone_unit_tests.step);
+    test_step.dependOn(&run_tests.step);
 
     const check_step = b.step("check", "check the project");
-    check_step.dependOn(&datetime_unit_tests.step);
-    check_step.dependOn(&timezone_unit_tests.step);
+    check_step.dependOn(&tests.step);
 }

@@ -16,6 +16,8 @@ data: union(enum) {
     none,
 },
 
+const TimeZone = @This();
+
 /// Windows system time
 const SYSTEMTIME = extern struct {
     wYear: windows.WORD,
@@ -46,7 +48,7 @@ pub const Localization = struct {
     is_leap_second: bool,
 };
 
-pub const Error = Allocator.Error || std.process.GetEnvVarOwnedError;
+pub const Error = TZif.ParseError || std.process.GetEnvVarOwnedError;
 
 pub fn deinit(self: TimeZone, alloc: Allocator) void {
     switch (self.data) {
@@ -55,12 +57,13 @@ pub fn deinit(self: TimeZone, alloc: Allocator) void {
     }
 }
 
-pub fn find(alloc: Allocator) Error!TimeZone {
+// TODO: Fix error set
+pub fn find(alloc: Allocator, io: Io) !TimeZone {
     if (@import("builtin").os.tag == .windows) {
         return .{ .data = .{ .windows = {} } };
     }
 
-    if (try TZif.findTzif(alloc)) |t| {
+    if (try TZif.findTzif(alloc, io)) |t| {
         return .{ .data = .{ .tzif = t } };
     }
 
@@ -70,8 +73,10 @@ pub fn find(alloc: Allocator) Error!TimeZone {
         const tz = try std.process.getEnvVarOwned(alloc, "TZ");
         defer alloc.free(tz);
 
-        const tz_string, _ = TZString.parse(alloc, tz) catch |err| switch (err) {
-            error.OutOfMemory => return Error.OutOfMemory,
+        var tz_reader: Reader = .fixed(tz);
+
+        const tz_string = TZString.parse(alloc, &tz_reader) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
             else => break :blk,
         };
 
@@ -344,21 +349,20 @@ test tzStringLocalization {
     try expectEqual(jan20_loc, tzStringLocalization(tzstring, jan20));
 }
 
-const TimeZone = @This();
-
-const DateTime = @import("DateTime.zig");
-const TZif = @import("TZif.zig");
-const TZString = @import("TZString.zig");
-
-const Year = DateTime.Year;
-const Month = DateTime.MonthOfYear;
-
 const std = @import("std");
+
 const log = std.log.scoped(.timezone);
 const assert = std.debug.assert;
 
-const AnyWriter = std.io.AnyWriter;
+const Io = std.Io;
+const Reader = Io.Reader;
+const Writer = Io.Writer;
 const Allocator = std.mem.Allocator;
+const DateTime = @import("DateTime.zig");
+const TZif = @import("TZif.zig");
+const TZString = @import("TZString.zig");
+const Year = DateTime.Year;
+const Month = DateTime.MonthOfYear;
 
 test {
     // Ensure this compiles

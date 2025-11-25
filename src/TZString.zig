@@ -196,341 +196,363 @@ pub fn deinit(tz: TZString, alloc: Allocator) void {
     }
 }
 
-/// Returns a subslice of buf and the index after the name
-fn parseName(buf: []const u8) !struct { []const u8, usize } {
-    if (buf.len == 0) return Error.InvalidName;
-
-    var start: usize = 0;
-    const state: enum { quoted, unquoted } = switch (buf[0]) {
+const ParseNameError = Writer.Error || error{ ReadFailed, InvalidName, EmptyName };
+fn parseName(r: *Reader, w: *Writer) ParseNameError!void {
+    const state: enum { quoted, unquoted } = switch (r.peekByte() catch |err| switch (err) {
+        error.ReadFailed => return error.ReadFailed,
+        error.EndOfStream => return error.EmptyName,
+    }) {
         '<' => blk: {
-            start = 1;
+            r.toss(1);
             break :blk .quoted;
         },
-        else => .unquoted,
+        'a'...'z',
+        'A'...'Z',
+        => .unquoted,
+        else => return error.EmptyName,
     };
 
-    for (buf[start..], start..) |c, i| {
-        switch (c) {
-            'a'...'z',
-            'A'...'Z',
-            => {},
-            '0'...'9',
-            '+',
-            '-',
-            => {
-                if (state == .unquoted) {
-                    return .{ buf[0..i], i };
-                }
+    while (r.peekByte()) |byte| switch (byte) {
+        'a'...'z',
+        'A'...'Z',
+        => {
+            r.toss(1);
+            try w.writeByte(byte);
+        },
+        '0'...'9',
+        '+',
+        '-',
+        => switch (state) {
+            .unquoted => return,
+            .quoted => {
+                r.toss(1);
+                try w.writeByte(byte);
             },
-            '>' => {
-                if (state == .unquoted) return Error.InvalidName;
-
-                // Be sure to exclude <>, and skip the final >
-                return .{ buf[1..i], i + 1 };
+        },
+        '>' => switch (state) {
+            .unquoted => return error.InvalidName,
+            .quoted => {
+                r.toss(1);
+                return;
             },
-            else => {
-                if (state == .quoted) return Error.InvalidName;
-                if (i < 2) return Error.InvalidName;
-                return .{ buf[0..i], i };
-            },
-        }
+        },
+        else => switch (state) {
+            .quoted => return error.InvalidName,
+            .unquoted => return,
+        },
+    } else |err| switch (err) {
+        error.ReadFailed => return error.ReadFailed,
+        error.EndOfStream => switch (state) {
+            .unquoted => return,
+            .quoted => return error.InvalidName,
+        },
     }
-
-    return Error.InvalidTzString;
 }
 
-fn parseOffset(buf: []const u8) !struct { Offset, usize } {
-    var start: usize = 0;
+const ParseOffsetError = error{ ReadFailed, InvalidOffset, NoOffset };
+fn parseOffset(r: *Reader) ParseOffsetError!Offset {
     const hour: i9 = blk: {
-        for (buf[start..], start..) |c, i| {
-            switch (c) {
-                '0'...'9' => {},
-                ':' => {
-                    const hour = std.fmt.parseInt(i9, buf[start..i], 10) catch return Error.InvalidOffset;
-                    start = i + 1; // Skip :
+        const sign: enum { pos, neg } = switch (r.peekByte() catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.EndOfStream => return error.NoOffset,
+        }) {
+            '+' => sign: {
+                r.toss(1);
+                break :sign .pos;
+            },
 
-                    if (hour < -167 or hour > 167) return Error.InvalidOffset;
+            '-' => sign: {
+                r.toss(1);
+                break :sign .neg;
+            },
+            '0'...'9' => .pos,
+            else => return error.NoOffset,
+        };
 
-                    break :blk hour;
-                },
-                '+',
-                '-',
-                => {
-                    if (i == start) continue;
+        var parsed_any = false;
+        var hour: i9 = 0;
+        while (r.peekByte()) |byte| switch (byte) {
+            '0'...'9' => {
+                parsed_any = true;
+                hour = std.math.mul(i9, hour, 10) catch return error.InvalidOffset;
+                hour += byte - '0';
+                r.toss(1);
+            },
+            else => {
+                if (!parsed_any) return error.InvalidOffset;
+                if (hour > 167) return error.InvalidOffset;
+                if (sign == .neg) hour = -hour;
 
-                    const hour = std.fmt.parseInt(i9, buf[start..i], 10) catch return Error.InvalidOffset;
-                    start = i;
-
-                    if (hour < -167 or hour > 167) return Error.InvalidOffset;
-
-                    return .{ .{ .hour = hour }, start };
-                },
-                else => {
-                    const hour = try std.fmt.parseInt(i9, buf[start..i], 10);
-                    start = i;
-
-                    if (hour < -167 or hour > 167) return Error.InvalidOffset;
-
-                    return .{ .{ .hour = hour }, start };
-                },
-            }
+                switch (byte) {
+                    ':' => {
+                        r.toss(1);
+                        break :blk hour;
+                    },
+                    else => return .{ .hour = hour },
+                }
+            },
+        } else |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.EndOfStream => {
+                if (!parsed_any) return error.InvalidOffset;
+                if (hour > 167) return error.InvalidOffset;
+                if (sign == .neg) hour = -hour;
+                return .{ .hour = hour };
+            },
         }
-
-        const hour = std.fmt.parseInt(i9, buf[start..], 10) catch return Error.InvalidOffset;
-        if (hour < -167 or hour > 167) return Error.InvalidOffset;
-        return .{ .{ .hour = hour }, buf.len };
     };
 
     const minute: u6 = blk: {
-        for (buf[start..], start..) |c, i| {
-            switch (c) {
-                '0'...'9',
-                => {},
-                ':' => {
-                    const minute = try std.fmt.parseInt(u6, buf[start..i], 10);
-                    start = i + 1; // Skip :
-
-                    _ = try Minute.fromChecked(minute);
-
-                    break :blk minute;
-                },
-                else => {
-                    const minute = try std.fmt.parseInt(u6, buf[start..i], 10);
-                    start = i;
-
-                    _ = try Minute.fromChecked(minute);
-
-                    return .{ .{ .hour = hour, .minute = minute }, i };
-                },
-            }
-        }
-
-        const minute = try std.fmt.parseInt(u6, buf[start..], 10);
-        _ = try Minute.fromChecked(minute);
-        return .{ .{ .hour = hour, .minute = minute }, buf.len };
-    };
-
-    for (buf[start..], start..) |c, i| {
-        switch (c) {
-            '0'...'9',
-            => {},
+        var parsed_any = false;
+        var minute: u6 = 0;
+        while (r.peekByte()) |byte| switch (byte) {
+            '0'...'9' => {
+                parsed_any = true;
+                minute = std.math.mul(u6, minute, 10) catch return error.InvalidOffset;
+                minute += @intCast(byte - '0');
+                r.toss(1);
+            },
             else => {
-                const second = try std.fmt.parseInt(u6, buf[start..i], 10);
-                _ = try Second.fromChecked(second);
-                return .{ .{ .hour = hour, .minute = minute, .second = second }, i };
+                if (!parsed_any) return error.InvalidOffset;
+                // TODO: leap seconds?
+                if (minute >= 60) return error.InvalidOffset;
+
+                switch (byte) {
+                    ':' => {
+                        r.toss(1);
+                        break :blk minute;
+                    },
+                    else => return .{ .hour = hour, .minute = minute },
+                }
+            },
+        } else |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.EndOfStream => {
+                if (!parsed_any) return error.InvalidOffset;
+                if (minute >= 60) return error.InvalidOffset;
+                return .{ .hour = hour, .minute = minute };
             },
         }
+    };
+
+    var parsed_any = false;
+    var second: u6 = 0;
+    loop: while (r.peekByte()) |byte| switch (byte) {
+        '0'...'9' => {
+            parsed_any = true;
+            second = std.math.mul(u6, second, 10) catch return error.InvalidOffset;
+            second += @intCast(byte - '0');
+            r.toss(1);
+        },
+        else => break :loop,
+    } else |err| switch (err) {
+        error.ReadFailed => return error.ReadFailed,
+        error.EndOfStream => {},
     }
 
-    const second = try std.fmt.parseInt(u6, buf[start..], 10);
-    _ = try Minute.fromChecked(second);
-    return .{ .{ .hour = hour, .minute = minute, .second = second }, buf.len };
+    if (!parsed_any) return error.InvalidOffset;
+    // TODO: leap seconds?
+    if (second >= 60) return error.InvalidOffset;
+    return .{ .hour = hour, .minute = minute, .second = second };
 }
 
-fn parseDate(buf: []const u8) !struct { Rule.Date, usize } {
-    if (buf.len == 0) return Error.InvalidDate;
-
-    var start: usize = 0;
-
-    const state: enum { julian, zero_julian, occurance_in_month } = switch (buf[0]) {
+const ParseDateError = Reader.Error || error{InvalidDate};
+fn parseDate(r: *Reader) ParseDateError!Rule.Date {
+    const state: enum { julian, zero_julian, occurance_in_month } = switch (try r.peekByte()) {
         '0'...'9' => .zero_julian,
         'J' => blk: {
-            start = 1;
+            r.toss(1);
             break :blk .julian;
         },
         'M' => blk: {
-            start = 1;
+            r.toss(1);
             break :blk .occurance_in_month;
         },
-        else => return Error.InvalidDate,
+        else => return error.InvalidDate,
     };
 
-    return blk: switch (state) {
+    switch (state) {
         .zero_julian => {
-            for (buf[start..], start..) |c, i| {
-                switch (c) {
-                    '0'...'9' => {},
-                    else => {
-                        const n = try std.fmt.parseInt(u9, buf[start..i], 10);
-
-                        if (n > 365) return Error.InvalidDate;
-
-                        break :blk .{ .{ .zero_julian = n }, i };
-                    },
-                }
+            var day: u9 = 0;
+            while (r.peekByte()) |byte| switch (byte) {
+                '0'...'9' => {
+                    day = std.math.mul(u9, day, 10) catch return error.InvalidDate;
+                    day += byte - '0';
+                    r.toss(1);
+                },
+                else => {
+                    if (day > 365) return error.InvalidDate;
+                    return .{ .zero_julian = day };
+                },
+            } else |err| switch (err) {
+                error.ReadFailed => return error.ReadFailed,
+                error.EndOfStream => {
+                    if (day > 365) return error.InvalidDate;
+                    return .{ .zero_julian = day };
+                },
             }
-            const n = try std.fmt.parseInt(u9, buf[start..], 10);
-
-            if (n > 365) return Error.InvalidDate;
-
-            break :blk .{ .{ .zero_julian = n }, buf.len };
         },
         .julian => {
-            for (buf[start..], start..) |c, i| {
-                switch (c) {
-                    '0'...'9' => {},
-                    else => {
-                        const n = try std.fmt.parseInt(u9, buf[start..i], 10);
-                        if (365 < n or n < 1) return Error.InvalidDate;
-                        break :blk .{ .{ .julian = n }, i };
-                    },
-                }
+            var day: u9 = 0;
+            while (r.peekByte()) |byte| switch (byte) {
+                '0'...'9' => {
+                    day = std.math.mul(u9, day, 10) catch return error.InvalidDate;
+                    day += byte - '0';
+                    r.toss(1);
+                },
+                else => {
+                    if (365 < day or day < 1) return error.InvalidDate;
+                    return .{ .julian = day };
+                },
+            } else |err| switch (err) {
+                error.ReadFailed => return error.ReadFailed,
+                error.EndOfStream => {
+                    if (365 < day or day < 1) return error.InvalidDate;
+                    return .{ .julian = day };
+                },
             }
-
-            const n = try std.fmt.parseInt(u9, buf[start..], 10);
-            if (365 < n or n < 1) return Error.InvalidDate;
-            break :blk .{ .{ .julian = n }, buf.len };
         },
         .occurance_in_month => {
             const month = month: {
-                for (buf[start..], start..) |c, i| {
-                    switch (c) {
-                        '0'...'9' => {},
-                        '.' => {
-                            const n = std.fmt.parseInt(u4, buf[start..i], 10) catch return Error.InvalidDate;
-                            start = i + 1; // Skip the .
+                var month: u4 = 0;
+                while (r.takeByte()) |byte| switch (byte) {
+                    '0'...'9' => {
+                        month = std.math.mul(u4, month, 10) catch return error.InvalidDate;
+                        month += @intCast(byte - '0');
+                    },
+                    '.' => break :month MonthOfYear.fromChecked(month) catch
+                        return error.InvalidDate,
 
-                            break :month MonthOfYear.fromChecked(n) catch return Error.InvalidDate;
-                        },
-                        else => return Error.InvalidDate,
-                    }
+                    else => return error.InvalidDate,
+                } else |err| switch (err) {
+                    error.ReadFailed => return error.ReadFailed,
+                    error.EndOfStream => return error.InvalidDate,
                 }
-                return Error.InvalidDate;
             };
 
             const occurence = occurence: {
-                for (buf[start..], start..) |c, i| {
-                    switch (c) {
-                        '0'...'9' => {},
-                        '.' => {
-                            const n = try std.fmt.parseInt(u3, buf[start..i], 10);
-                            start = i + 1; // Skip the .
-
-                            if (5 < n or n < 1) return Error.InvalidDate;
-
-                            break :occurence n;
-                        },
-                        else => return Error.InvalidDate,
-                    }
+                var occurence: u3 = 0;
+                while (r.takeByte()) |byte| switch (byte) {
+                    '0'...'7' => {
+                        if (occurence != 0) return error.InvalidDate;
+                        occurence = @intCast(byte - '0');
+                    },
+                    '.' => {
+                        if (5 < occurence or occurence < 1) return error.InvalidDate;
+                        break :occurence occurence;
+                    },
+                    else => return error.InvalidDate,
+                } else |err| switch (err) {
+                    error.ReadFailed => return error.ReadFailed,
+                    error.EndOfStream => return error.InvalidDate,
                 }
-                return Error.InvalidDate;
             };
 
             const day = day: {
-                for (buf[start..], start..) |c, i| {
-                    switch (c) {
-                        '0'...'9' => {},
-                        else => {
-                            const n = std.fmt.parseInt(u3, buf[start..i], 10) catch return Error.InvalidDate;
-                            start = i;
-
-                            break :day (DayOfWeek.from0Checked(n) catch return Error.InvalidDate).prev();
-                        },
-                    }
+                var day: u3 = 0;
+                while (r.peekByte()) |byte| switch (byte) {
+                    '0'...'7' => {
+                        if (day != 0) return error.InvalidDate;
+                        day = @intCast(byte - '0');
+                        r.toss(1);
+                    },
+                    else => break :day (DayOfWeek.from0Checked(day) catch
+                        return error.InvalidDate).prev(),
+                } else |err| switch (err) {
+                    error.ReadFailed => return error.ReadFailed,
+                    error.EndOfStream => return error.InvalidDate,
                 }
-                return Error.InvalidDate;
             };
 
-            break :blk .{
-                .{ .occurenceInMonth = .{
-                    .month = month,
-                    .occurence = occurence,
-                    .day_of_week = day,
-                } },
-                start,
-            };
+            return .{ .occurenceInMonth = .{
+                .month = month,
+                .occurence = occurence,
+                .day_of_week = day,
+            } };
         },
-    };
+    }
 }
 
-pub fn parse(alloc: Allocator, buf: []const u8) Error!struct { TZString, usize } {
-    // No chars, error
-    if (buf.len == 0) return Error.InvalidTzString;
-
-    var start: usize = 0;
-
-    assert(start < buf.len);
+const ParseTzStringError = error{ReadFailed} || Allocator.Error || error{InvalidTzString};
+pub fn parse(gpa: Allocator, r: *Reader) ParseTzStringError!TZString {
     const std_name = blk: {
-        const std_name_slice, const i = try parseName(buf[start..]);
-        start += i;
+        var aw: Writer.Allocating = .init(gpa);
+        errdefer aw.deinit();
 
-        // No std offset, error
-        if (start >= buf.len) return Error.InvalidName;
+        parseName(r, &aw.writer) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.WriteFailed => return error.OutOfMemory,
+            error.EmptyName => {
+                assert(aw.written().len == 0);
+                break :blk "";
+            },
+            error.InvalidName => return error.InvalidTzString,
+        };
 
-        break :blk try alloc.dupe(u8, std_name_slice);
+        break :blk try aw.toOwnedSlice();
     };
-    errdefer alloc.free(std_name);
+    errdefer gpa.free(std_name);
 
-    assert(start < buf.len);
-    const std_offset = blk: {
-        const std_offset, const i = try parseOffset(buf[start..]);
-        start += i;
+    const std_offset = parseOffset(r) catch |err| switch (err) {
+        error.ReadFailed => return error.ReadFailed,
+        error.NoOffset => return error.InvalidTzString,
+        error.InvalidOffset => return error.InvalidTzString,
+    };
 
-        // No dst
-        if (start >= buf.len) return .{ .{
+    // If there is nothing left to parse (aka we see '\n' and or there is
+    // litterally nothing left to parse) we should return here. Otherwise
+    // dst_name and dst_offset get filled with no data
+    switch (r.peekByte() catch |err| switch (err) {
+        error.ReadFailed => return error.ReadFailed,
+        error.EndOfStream => '\n',
+    }) {
+        '\n' => return .{
             .standard = .{
                 .name = std_name,
                 .offset = std_offset,
             },
-        }, start };
+        },
+        else => {},
+    }
 
-        break :blk std_offset;
-    };
-
-    assert(start < buf.len);
     const dst_name = blk: {
-        const dst_name_slice, const i = parseName(buf[start..]) catch {
+        var aw: Writer.Allocating = .init(gpa);
+        errdefer aw.deinit();
 
-            // Invalid dst
-            return .{ .{
-                .standard = .{
-                    .name = std_name,
-                    .offset = std_offset,
-                },
-            }, start };
+        parseName(r, &aw.writer) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.WriteFailed => return error.OutOfMemory,
+            error.InvalidName => return error.InvalidTzString,
+            error.EmptyName => {
+                assert(aw.written().len == 0);
+                break :blk "";
+            },
         };
-        start += i;
 
-        const dst_name = try alloc.dupe(u8, dst_name_slice);
-
-        // No dst offset
-        if (start >= buf.len) {
-            var dst_offset = std_offset;
-            dst_offset.hour += 1;
-
-            return .{ .{
-                .standard = .{
-                    .name = std_name,
-                    .offset = std_offset,
-                },
-                .daylight_savings_time = .{
-                    .name = dst_name,
-                    .offset = dst_offset,
-                },
-            }, start };
-        }
-
-        break :blk dst_name;
+        break :blk try aw.toOwnedSlice();
     };
-    errdefer alloc.free(dst_name);
+    errdefer gpa.free(dst_name);
 
-    assert(start < buf.len);
     const dst_offset = blk: {
-        // Ignore offset, continue on to rule
-        if (buf[start] == ',') {
-            start += 1;
-
+        if (',' == r.peekByte() catch |err| break :blk err) {
+            // Ignore offset, continue on to rule
             var dst_offset = std_offset;
             dst_offset.hour += 1;
 
             break :blk dst_offset;
         }
 
-        const dst_offset, const i = parseOffset(buf[start..]) catch {
+        break :blk parseOffset(r);
+    } catch |err| switch (err) {
+        error.ReadFailed => return error.ReadFailed,
+        error.InvalidOffset => return error.InvalidTzString,
+        error.EndOfStream,
+        error.NoOffset,
+        => {
             var dst_offset = std_offset;
             dst_offset.hour += 1;
 
-            return .{ .{
+            return .{
                 .standard = .{
                     .name = std_name,
                     .offset = std_offset,
@@ -539,86 +561,79 @@ pub fn parse(alloc: Allocator, buf: []const u8) Error!struct { TZString, usize }
                     .name = dst_name,
                     .offset = dst_offset,
                 },
-            }, start };
+            };
+        },
+    };
+
+    // No rule, return
+    if (',' != r.peekByte() catch |err| switch (err) {
+        error.ReadFailed => return error.ReadFailed,
+        error.EndOfStream => 0,
+    }) {
+        return .{
+            .standard = .{
+                .name = std_name,
+                .offset = std_offset,
+            },
+            .daylight_savings_time = .{
+                .name = dst_name,
+                .offset = dst_offset,
+            },
         };
-        start += i;
+    }
 
-        // No rule, return
-        if (start >= buf.len or buf[start] != ',') {
-            return .{ .{
-                .standard = .{
-                    .name = std_name,
-                    .offset = std_offset,
-                },
-                .daylight_savings_time = .{
-                    .name = dst_name,
-                    .offset = dst_offset,
-                },
-            }, start };
-        }
+    //  Read ','
+    assert(r.peekByte() catch unreachable == ',');
+    r.toss(1);
 
-        //  Read ','
-        start += 1;
-
-        // We have a rule, but no more characters, error
-        if (start >= buf.len) return Error.InvalidTzString;
-
-        break :blk dst_offset;
+    const start_date = parseDate(r) catch |err| switch (err) {
+        error.ReadFailed => return error.ReadFailed,
+        error.EndOfStream => return error.InvalidTzString,
+        error.InvalidDate => return error.InvalidTzString,
     };
 
-    assert(start < buf.len);
-    const start_date = blk: {
-        const date, const i = try parseDate(buf[start..]);
-        start += i;
-
-        // We don't have an end yet, error
-        if (start >= buf.len) return Error.InvalidTzString;
-
-        break :blk date;
-    };
-
-    assert(start < buf.len);
     const start_time: Offset = blk: {
-        if (buf[start] != '/') {
-            break :blk .{ .hour = 2 };
-        }
-        start += 1;
+        if ('/' != r.peekByte() catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.EndOfStream => 0,
+        }) break :blk .{ .hour = 2 };
 
-        const time, const i = try parseOffset(buf[start..]);
-        start += i;
+        r.toss(1); // toss '/'
 
-        // We don't have an end yet, error
-        if (start >= buf.len) return Error.InvalidTzString;
-
-        break :blk time;
+        break :blk parseOffset(r) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.NoOffset => return error.InvalidTzString,
+            error.InvalidOffset => return error.InvalidTzString,
+        };
     };
 
-    assert(start < buf.len);
-    if (buf[start] != ',' or buf[start..].len < 2)
-        return Error.InvalidTzString;
-    start += 1;
+    if (',' != r.takeByte() catch |err| switch (err) {
+        error.ReadFailed => return error.ReadFailed,
+        error.EndOfStream => 0,
+    }) return error.InvalidTzString;
 
-    assert(start < buf.len);
-    const end_date = blk: {
-        const date, const i = try parseDate(buf[start..]);
-        start += i;
-
-        break :blk date;
+    const end_date = parseDate(r) catch |err| switch (err) {
+        error.ReadFailed => return error.ReadFailed,
+        error.EndOfStream => return error.InvalidTzString,
+        error.InvalidDate => return error.InvalidTzString,
     };
 
     const end_time: Offset = blk: {
-        if (buf[start..].len == 0 or buf[start] != '/') {
-            break :blk .{ .hour = 2 };
-        }
-        start += 1;
+        if ('/' != r.peekByte() catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.EndOfStream => 0,
+        }) break :blk .{ .hour = 2 };
 
-        const time, const i = try parseOffset(buf[start..]);
-        start += i;
+        r.toss(1); // toss '/'
 
-        break :blk time;
+        break :blk parseOffset(r) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.NoOffset => return error.InvalidTzString,
+            error.InvalidOffset => return error.InvalidTzString,
+        };
     };
 
-    return .{ .{
+    return .{
         .standard = .{
             .name = std_name,
             .offset = std_offset,
@@ -637,7 +652,7 @@ pub fn parse(alloc: Allocator, buf: []const u8) Error!struct { TZString, usize }
                 .offset = end_time,
             },
         },
-    }, start };
+    };
 }
 
 // --- Testing ---
@@ -648,47 +663,44 @@ const TestCase = struct {
     input: []const u8,
     fail: ?anyerror = null,
     tz_string: ?TZString = null,
-    end_idx: ?usize = null,
     resolve: ?struct {
         year: Year,
         start: Rule.DateOffset.Resolved,
         end: Rule.DateOffset.Resolved,
     } = null,
 };
-const tst = struct {
-    pub fn tst(case: TestCase) !void {
-        const tz_string, const end_idx = TZString.parse(std.testing.allocator, case.input) catch |err| {
-            if (case.fail) |expected_err| {
-                if (err == expected_err) return;
-            }
-            return err;
-        };
-        defer tz_string.deinit(std.testing.allocator);
 
-        if (case.fail) |_| {
-            return error.ExpectedFailure;
+fn tst(case: TestCase) !void {
+    var input_reader: Reader = .fixed(case.input);
+
+    const tz_string = TZString.parse(std.testing.allocator, &input_reader) catch |err| {
+        if (case.fail) |expected_err| {
+            try std.testing.expectEqual(expected_err, err);
+            return;
         }
+        return err;
+    };
+    defer tz_string.deinit(std.testing.allocator);
 
-        if (case.tz_string) |expected_string| {
-            try expectEqual(expected_string, tz_string);
-        }
-
-        if (case.end_idx) |expected_end| {
-            try expectEqual(expected_end, end_idx);
-        }
-
-        if (case.resolve) |resolve| {
-            try expect(tz_string.rule != null);
-            const rule = tz_string.rule.?;
-
-            const start = rule.start.resolve(resolve.year);
-            try expectEqual(resolve.start, start);
-
-            const end = rule.end.resolve(resolve.year);
-            try expectEqual(resolve.end, end);
-        }
+    if (case.fail) |_| {
+        return error.ExpectedFailure;
     }
-}.tst;
+
+    if (case.tz_string) |expected_string| {
+        try expectEqual(expected_string, tz_string);
+    }
+
+    if (case.resolve) |resolve| {
+        try expect(tz_string.rule != null);
+        const rule = tz_string.rule.?;
+
+        const start = rule.start.resolve(resolve.year);
+        try expectEqual(resolve.start, start);
+
+        const end = rule.end.resolve(resolve.year);
+        try expectEqual(resolve.end, end);
+    }
+}
 
 test "Happy path" {
     try tst(.{
@@ -699,7 +711,6 @@ test "Happy path" {
             },
         },
         .input = "CET-1\n",
-        .end_idx = 5,
     });
     try tst(.{
         .tz_string = .{
@@ -713,7 +724,6 @@ test "Happy path" {
             },
         },
         .input = "CET-1CEST\n",
-        .end_idx = 9,
     });
     try tst(.{
         .tz_string = .{
@@ -745,7 +755,6 @@ test "Happy path" {
             },
         },
         .input = "CET-1CEST,M3.5.0,M10.5.0\n",
-        .end_idx = 24,
     });
     try tst(.{
         .tz_string = .{
@@ -777,7 +786,6 @@ test "Happy path" {
             },
         },
         .input = "CET-1CEST,M3.5.0/2:4:20,M10.5.0/3\n",
-        .end_idx = 33,
     });
 
     try tst(.{
@@ -802,7 +810,6 @@ test "Happy path" {
             },
         },
         .input = "CET-1CEST+20,0/2:4:20,J69/3",
-        .end_idx = 27,
     });
 
     try tst(.{
@@ -827,7 +834,6 @@ test "Happy path" {
             },
         },
         .input = "<+69CET>-1<-8CEST>+20,0/2:4,J69/3:59:59",
-        .end_idx = 39,
     });
 }
 
@@ -868,32 +874,42 @@ test "Very big offsets" {
             },
         },
     });
+
+    try tst(.{
+        .input = "A-167:59:59\n",
+        .tz_string = .{
+            .standard = .{
+                .name = "A",
+                .offset = .{ .hour = -167, .minute = 59, .second = 59 },
+            },
+        },
+    });
 }
 
 test "Invalid offsets" {
     try tst(.{
         .input = "A168",
-        .fail = error.InvalidOffset,
+        .fail = error.InvalidTzString,
     });
 
     try tst(.{
         .input = "A-168",
-        .fail = error.InvalidOffset,
+        .fail = error.InvalidTzString,
     });
 
     try tst(.{
         .input = "A9999",
-        .fail = error.InvalidOffset,
+        .fail = error.InvalidTzString,
     });
 
     try tst(.{
         .input = "A-9999",
-        .fail = error.InvalidOffset,
+        .fail = error.InvalidTzString,
     });
 }
 test "empty designations" {
     try tst(.{
-        .input = "-00-00",
+        .input = "-00-01",
         .tz_string = .{
             .standard = .{
                 .name = "",
@@ -901,13 +917,13 @@ test "empty designations" {
             },
             .daylight_savings_time = .{
                 .name = "",
-                .offset = .{ .hour = 0 },
+                .offset = .{ .hour = -1 },
             },
         },
     });
 
     try tst(.{
-        .input = "<>-00<>-00",
+        .input = "<>-00<>-01",
         .tz_string = .{
             .standard = .{
                 .name = "",
@@ -915,7 +931,7 @@ test "empty designations" {
             },
             .daylight_savings_time = .{
                 .name = "",
-                .offset = .{ .hour = 0 },
+                .offset = .{ .hour = -1 },
             },
         },
     });
@@ -923,55 +939,63 @@ test "empty designations" {
 test "Out of bounds dates" {
     try tst(.{
         .input = "<>0<>0,J0,0",
-        .fail = error.InvalidDate,
+        .fail = error.InvalidTzString,
     });
 
     try tst(.{
         .input = "<>0<>0,J366,0",
-        .fail = error.InvalidDate,
+        .fail = error.InvalidTzString,
     });
 
     try tst(.{
         .input = "<>0<>0,366,0",
-        .fail = error.InvalidDate,
+        .fail = error.InvalidTzString,
     });
 
     // Occurance in month months
     try tst(.{
         .input = "<>0<>0,M0.1.1,0",
-        .fail = error.InvalidDate,
+        .fail = error.InvalidTzString,
     });
     try tst(.{
         .input = "<>0<>0,M13.1.1,0",
-        .fail = error.InvalidDate,
+        .fail = error.InvalidTzString,
     });
     try tst(.{
         .input = "<>0<>0,M9999.1.1,0",
-        .fail = error.InvalidDate,
+        .fail = error.InvalidTzString,
     });
 
     //  Occurance in month Occurance
     try tst(.{
         .input = "<>0<>0,M1.0.1,0",
-        .fail = error.InvalidDate,
+        .fail = error.InvalidTzString,
     });
     try tst(.{
         .input = "<>0<>0,M1.6.1,0",
-        .fail = error.InvalidDate,
+        .fail = error.InvalidTzString,
     });
     try tst(.{
         .input = "<>0<>0,M1.9999,0",
-        .fail = error.InvalidDate,
+        .fail = error.InvalidTzString,
+    });
+    try tst(.{
+        .input = "<>0<>0,M1.7777,0",
+        .fail = error.InvalidTzString,
     });
 
     // Occurance in month days
     try tst(.{
         .input = "<>0<>0,M1.1.7,0",
-        .fail = error.InvalidDate,
+        .fail = error.InvalidTzString,
     });
     try tst(.{
         .input = "<>0<>0,M1.1.9999,0",
-        .fail = error.InvalidDate,
+        .fail = error.InvalidTzString,
+    });
+    try tst(.{
+        .input = "<>0<>0,M1.1.7777,0",
+        .fail = error.InvalidTzString,
     });
 }
 
@@ -1080,6 +1104,38 @@ test "Very big rule offsets" {
     });
 }
 
+test "incomplete offsets" {
+    try tst(.{
+        .input = "+",
+        .fail = error.InvalidTzString,
+    });
+
+    try tst(.{
+        .input = "-",
+        .fail = error.InvalidTzString,
+    });
+
+    try tst(.{
+        .input = "0:",
+        .fail = error.InvalidTzString,
+    });
+
+    try tst(.{
+        .input = "0:0:",
+        .fail = error.InvalidTzString,
+    });
+
+    try tst(.{
+        .input = "Hello-",
+        .fail = error.InvalidTzString,
+    });
+
+    try tst(.{
+        .input = "Hello+",
+        .fail = error.InvalidTzString,
+    });
+}
+
 test "incomplete strings" {
     try tst(.{
         .input = "",
@@ -1092,23 +1148,8 @@ test "incomplete strings" {
     });
 
     try tst(.{
-        .input = "+",
-        .fail = error.InvalidOffset,
-    });
-
-    try tst(.{
-        .input = "-",
-        .fail = error.InvalidOffset,
-    });
-
-    try tst(.{
-        .input = "Hello-",
-        .fail = error.InvalidOffset,
-    });
-
-    try tst(.{
-        .input = "Hello+",
-        .fail = error.InvalidOffset,
+        .input = "<asdf",
+        .fail = error.InvalidTzString,
     });
 }
 
@@ -1132,5 +1173,7 @@ const std = @import("std");
 
 const assert = std.debug.assert;
 
-const AnyReader = std.io.AnyReader;
+const Io = std.Io;
+const Reader = Io.Reader;
+const Writer = Io.Writer;
 const Allocator = std.mem.Allocator;

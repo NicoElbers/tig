@@ -100,6 +100,8 @@ pub fn localize(timezone: TimeZone, date: DateTime) DateTime {
             const year: Year = .from(local_time.wYear);
             const month: Month = .from(@intCast(local_time.wMonth));
 
+            assert(local_time.wDay != 0);
+
             return DateTime.gregorianEpoch
                 .setYear(year)
                 .addDays(month.ordinalNumberOfFirstOfMonth(year.isLeapYear()))
@@ -111,11 +113,6 @@ pub fn localize(timezone: TimeZone, date: DateTime) DateTime {
     };
 
     return date.addSeconds(data.base_offset + data.leap_second_offset);
-}
-
-pub fn localFormat(writer: anytype, timezone: TimeZone, date: DateTime) !void {
-    const local = timezone.localize(date);
-    try local.format("{}", .{}, writer);
 }
 
 fn tzifLocalization(tzif: TZif, date: DateTime) Localization {
@@ -245,13 +242,30 @@ fn tzStringLocalization(tz_string: TZString, date: DateTime) Localization {
         .is_leap_second = false,
     };
 
-    const Order = enum { lt, eq, gt };
+    const order = struct {
+        pub fn order(off: TZString.Rule.DateOffset.Resolved, dt: DateTime) std.math.Order {
+            switch (std.math.order(dt.getDayOfYear().to(), off.doy.to())) {
+                .lt, .gt => |o| return o,
+                .eq => {},
+            }
+            switch (std.math.order(dt.getHour().to(), off.hour.to())) {
+                .lt, .gt => |o| return o,
+                .eq => {},
+            }
+            switch (std.math.order(dt.getMinute().to(), off.minute.to())) {
+                .lt, .gt => |o| return o,
+                .eq => {},
+            }
+            switch (std.math.order(dt.getSecond().to(), off.second.to())) {
+                .lt, .gt => |o| return o,
+                .eq => {},
+            }
+
+            return .eq;
+        }
+    }.order;
 
     const year = date.getYear();
-    const doy = date.getDayOfYear();
-    const hour = date.getHour();
-    const minute = date.getMinute();
-    const second = date.getSecond();
 
     const rule = tz_string.rule.?;
     const dst = tz_string.daylight_savings_time.?;
@@ -260,47 +274,19 @@ fn tzStringLocalization(tz_string: TZString, date: DateTime) Localization {
     const start = rule.start.resolve(year);
     const end = rule.end.resolve(year);
 
-    const order_start: Order = blk: {
-        if (doy.to() < start.doy.to()) break :blk .lt;
-        if (doy.to() > start.doy.to()) break :blk .gt;
+    const order_start = order(start, date);
+    const order_end = order(end, date);
 
-        if (hour.to() < start.hour.to()) break :blk .lt;
-        if (hour.to() > start.hour.to()) break :blk .gt;
-
-        if (minute.to() < start.minute.to()) break :blk .lt;
-        if (minute.to() > start.minute.to()) break :blk .gt;
-
-        if (second.to() < start.second.to()) break :blk .lt;
-        if (second.to() > start.second.to()) break :blk .gt;
-
-        break :blk .eq;
-    };
-
-    const order_end: Order = blk: {
-        if (doy.to() < end.doy.to()) break :blk .lt;
-        if (doy.to() > end.doy.to()) break :blk .gt;
-
-        if (hour.to() < end.hour.to()) break :blk .lt;
-        if (hour.to() > end.hour.to()) break :blk .gt;
-
-        if (minute.to() < end.minute.to()) break :blk .lt;
-        if (minute.to() > end.minute.to()) break :blk .gt;
-
-        if (second.to() < end.second.to()) break :blk .lt;
-        if (second.to() > end.second.to()) break :blk .gt;
-
-        break :blk .eq;
-    };
-
-    const base_offset, const is_dst = if (rule.end.order(rule.start, year) != .lt)
-        if (order_start != .lt and order_end == .lt)
+    const base_offset, const is_dst =
+        if (rule.end.order(rule.start, year) != .lt)
+            if (order_start != .lt and order_end == .lt)
+                .{ dst.offset, true }
+            else
+                .{ standard.offset, false }
+        else if (order_start != .lt or order_end == .lt)
             .{ dst.offset, true }
         else
-            .{ standard.offset, false }
-    else if (order_start != .lt or order_end == .lt)
-        .{ dst.offset, true }
-    else
-        .{ standard.offset, false };
+            .{ standard.offset, false };
 
     return .{
         .base_offset = base_offset.toSecond(),

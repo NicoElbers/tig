@@ -31,7 +31,7 @@ pub const Rule = struct {
         date: Date,
         offset: Offset,
 
-        const Resolved = struct {
+        pub const Resolved = struct {
             doy: DayOfYear,
             hour: Hour,
             minute: Minute,
@@ -74,21 +74,29 @@ pub const Rule = struct {
             };
         }
 
-        pub fn order(a: DateOffset, b: DateOffset, year: Year) enum { lt, eq, gt } {
+        pub fn order(a: DateOffset, b: DateOffset, year: Year) std.math.Order {
             const a_resolved = a.resolve(year);
             const b_resolved = b.resolve(year);
 
-            if (a_resolved.doy.to() < b_resolved.doy.to()) return .lt;
-            if (a_resolved.doy.to() > b_resolved.doy.to()) return .gt;
+            switch (std.math.order(a_resolved.doy.to(), b_resolved.doy.to())) {
+                .lt, .gt => |o| return o,
+                .eq => {},
+            }
 
-            if (a_resolved.hour.to() < b_resolved.hour.to()) return .lt;
-            if (a_resolved.hour.to() > b_resolved.hour.to()) return .gt;
+            switch (std.math.order(a_resolved.hour.to(), b_resolved.hour.to())) {
+                .lt, .gt => |o| return o,
+                .eq => {},
+            }
 
-            if (a_resolved.minute.to() < b_resolved.minute.to()) return .lt;
-            if (a_resolved.minute.to() > b_resolved.minute.to()) return .gt;
+            switch (std.math.order(a_resolved.minute.to(), b_resolved.minute.to())) {
+                .lt, .gt => |o| return o,
+                .eq => {},
+            }
 
-            if (a_resolved.second.to() < b_resolved.second.to()) return .lt;
-            if (a_resolved.second.to() > b_resolved.second.to()) return .gt;
+            switch (std.math.order(a_resolved.second.to(), b_resolved.second.to())) {
+                .lt, .gt => |o| return o,
+                .eq => {},
+            }
 
             return .eq;
         }

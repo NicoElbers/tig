@@ -2096,10 +2096,12 @@ pub fn setYear(date: DateTime, year: Year) DateTime {
 
     const ordinal_day_of_year = blk: {
         const orig_day_of_year = date.getDayOfYear().to0();
+        const date_leapyear = date.getYear().isLeapYear();
+        const year_leapyear = year.isLeapYear();
 
         break :blk orig_day_of_year -
-            @intFromBool(date.getYear().isLeapYear() and !year.isLeapYear() and orig_day_of_year >= ordinal_feb29) +
-            @intFromBool(!date.getYear().isLeapYear() and year.isLeapYear() and orig_day_of_year >= ordinal_feb29);
+            @intFromBool(date_leapyear and !year_leapyear and orig_day_of_year >= ordinal_feb29) +
+            @intFromBool(!date_leapyear and year_leapyear and orig_day_of_year >= ordinal_feb29);
     };
 
     const days_to_jan1_of_year = year.daysSinceGregorianEpoch();
@@ -2424,6 +2426,10 @@ test format {
     try std.testing.expectFmt("292277024625-12-31T23:59:59", "{f}", .{date_max});
 }
 
+pub fn order(a: DateTime, b: DateTime) Order {
+    std.math.order(a.timestamp, b.timestamp);
+}
+
 const DateTime = @This();
 
 const std = @import("std");
@@ -2442,6 +2448,7 @@ const cast = std.math.cast;
 const Io = std.Io;
 const Reader = Io.Reader;
 const Writer = Io.Writer;
+const Order = std.math.Order;
 
 test {
     @disableInstrumentation();

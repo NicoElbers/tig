@@ -833,7 +833,6 @@ const Io = std.Io;
 const Reader = Io.Reader;
 const Writer = Io.Writer;
 const File = Io.File;
-const OpenError = std.posix.OpenError;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const Allocator = std.mem.Allocator;
 

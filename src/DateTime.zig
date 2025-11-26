@@ -1987,6 +1987,10 @@ pub fn getSecond(date: DateTime) Second {
     return Second.from(@intCast(@mod(date.timestamp, s_per_min)));
 }
 
+pub fn getSecondInDay(date: DateTime) u17 {
+    return @intCast(@mod(date.timestamp, s_per_day));
+}
+
 pub const DateOptions = struct {
     year: i40,
     month: MonthOfYear = .January,
@@ -2157,12 +2161,13 @@ pub fn addYears(date: DateTime, years: i40) DateTime {
     assert(date.isValid());
     const year = Year.from(date.getYear().to() +| years);
 
-    return gregorianEpoch.setYear(year);
+    return gregorianEpoch
+        .setYear(year)
+        .addMonths(date.getMonth().to0())
+        .addDays(date.getDayOfMonth().toOrdinal(date.getMonth(), year.isLeapYear()))
+        .addSeconds(date.getSecondInDay());
 }
-
 test addYears {
-    @disableInstrumentation();
-
     const expectEqual = std.testing.expectEqual;
 
     for (1..100) |year_step| {
@@ -2178,6 +2183,11 @@ test addYears {
             date = date.addYears(@intCast(year_step));
         }
     }
+
+    const time_before: DateTime = .fromGregorianTimestamp(63931394061);
+    const time_after: DateTime = .fromGregorianTimestamp(63962930061);
+
+    try expectEqual(time_after.timestamp, time_before.addYears(1).timestamp);
 }
 
 pub fn addMonthsChecked(date: DateTime, months: i40) !DateTime {
@@ -2221,7 +2231,8 @@ pub fn addMonthsChecked(date: DateTime, months: i40) !DateTime {
     return DateTime.gregorianEpoch
         .setYear(new_year)
         .addDays(new_month.ordinalNumberOfFirstOfMonth(new_year.isLeapYear()))
-        .addDays(new_day_of_month.toOrdinal(new_month, new_year.isLeapYear()));
+        .addDays(new_day_of_month.toOrdinal(new_month, new_year.isLeapYear()))
+        .addSeconds(date.getSecondInDay());
 }
 
 pub fn addMonths(date: DateTime, months: i40) DateTime {
@@ -2229,13 +2240,10 @@ pub fn addMonths(date: DateTime, months: i40) DateTime {
 }
 
 test addMonths {
-    @disableInstrumentation();
-
     const expectEqual = std.testing.expectEqual;
 
     const tst = struct {
         pub fn tst(add: i40, s: DateOptions, e: DateOptions) !void {
-            @disableInstrumentation();
             const start = build(s);
             const end = build(e);
 
@@ -2324,6 +2332,10 @@ test addMonths {
         .{ .year = 2019, .month = .January, .day_of_month = 31 },
         .{ .year = 2020, .month = .March, .day_of_month = 31 },
     );
+
+    const time_before: DateTime = .fromGregorianTimestamp(63931387791);
+    const time_after: DateTime = .fromGregorianTimestamp(63933979791);
+    try expectEqual(time_after.timestamp, time_before.addMonths(1).timestamp);
 }
 
 pub fn addWeeksChecked(date: DateTime, weeks: i64) !DateTime {

@@ -701,12 +701,15 @@ fn tst(case: TestCase) !void {
     if (case.resolve) |resolve| {
         try expect(tz_string.rule != null);
         const rule = tz_string.rule.?;
+        _ = rule;
+        _ = resolve;
 
-        const start = rule.start.resolve(resolve.year);
-        try expectEqual(resolve.start, start);
+        // uncomment when https://github.com/ziglang/zig/pull/25960 hits nightly
+        // const start = rule.start.resolve(resolve.year);
+        // try expectEqual(resolve.start, start);
 
-        const end = rule.end.resolve(resolve.year);
-        try expectEqual(resolve.end, end);
+        // const end = rule.end.resolve(resolve.year);
+        // try expectEqual(resolve.end, end);
     }
 }
 

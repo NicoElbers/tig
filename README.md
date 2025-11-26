@@ -1,5 +1,2 @@
-# DateTime formatting in Zig
-
-- Built on latest master
-- Requires some more testing tbh
-- Current tests compile, but not the entire project, WIP
+# Moved to codeberg
+This repository has been moved to [codeberg](https://codeberg.org/NicoElbers/tig)

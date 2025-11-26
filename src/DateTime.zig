@@ -656,57 +656,15 @@ pub const Year = enum(i40) {
     }
 
     pub fn format(year: @This(), writer: *Writer) Writer.Error!void {
-        // Effectively a copy of std.fmt.formatInt, but I wanted a little
-        // bit of custom logic with the sign so we ball
+        try formatIntCustom(writer, year.to());
+    }
 
-        if (!year.isValid()) {
-            try writer.writeAll("Invalid Year (");
-            try writer.print("{d}", .{year.toUnchecked()});
-            try writer.writeAll(")");
-            return;
-        }
-
-        const int_value = year.to();
-
-        const value_info = @typeInfo(@TypeOf(int_value)).int;
-
-        // The type must have the same size as `base` or be wider in order for the
-        // division to work
-        const min_int_bits = comptime @max(value_info.bits, 8);
-        const MinInt = std.meta.Int(.unsigned, min_int_bits);
-
-        const abs_value = @abs(int_value);
-        // The worst case in terms of space needed is base 2, plus 1 for the sign
-        var buf: [1 + @max(@as(comptime_int, value_info.bits), 1)]u8 = undefined;
-
-        var a: MinInt = abs_value;
-        var index: usize = buf.len;
-
-        while (a >= 100) : (a = @divTrunc(a, 100)) {
-            index -= 2;
-            buf[index..][0..2].* = std.fmt.digits2(@intCast(a % 100));
-        }
-
-        if (a < 10) {
-            index -= 1;
-            buf[index] = '0' + @as(u8, @intCast(a));
-        } else {
-            index -= 2;
-            buf[index..][0..2].* = std.fmt.digits2(@intCast(a));
-        }
-
-        while (index > buf.len - 4) {
-            index -= 1;
-            buf[index] = '0';
-        }
-
-        if (int_value < 0) {
-            // Negative integer
-            index -= 1;
-            buf[index] = '-';
-        }
-
-        try writer.writeAll(buf[index..]);
+    test "Year format" {
+        try std.testing.expectFmt("2025", "{f}", .{Year.from(2025)});
+        try std.testing.expectFmt("0000", "{f}", .{Year.from(0)});
+        try std.testing.expectFmt("-0001", "{f}", .{Year.from(-1)});
+        try std.testing.expectFmt("292277024625", "{f}", .{Year.max});
+        try std.testing.expectFmt("-292277024626", "{f}", .{Year.min});
     }
 };
 
@@ -924,13 +882,24 @@ pub const MonthOfYear = enum(u4) {
         return .{ .data = .{ .month = month, .type = fmt_type } };
     }
 
-    const FormatType = enum { name, number };
+    const FormatType = enum { name, short, number };
     const FormatData = struct { month: MonthOfYear, type: FormatType };
     fn format(data: FormatData, writer: *Writer) !void {
         switch (data.type) {
             .name => try writer.print("{t}", .{data.month}),
+            .short => try writer.print("{s}", .{@tagName(data.month)[0..3]}),
             .number => try writer.print("{d:0>2}", .{data.month.to()}),
         }
+    }
+
+    test "MonthOfYear format" {
+        try std.testing.expectFmt("January", "{f}", .{MonthOfYear.January.fmt(.name)});
+        try std.testing.expectFmt("Jan", "{f}", .{MonthOfYear.January.fmt(.short)});
+        try std.testing.expectFmt("01", "{f}", .{MonthOfYear.January.fmt(.number)});
+
+        try std.testing.expectFmt("December", "{f}", .{MonthOfYear.December.fmt(.name)});
+        try std.testing.expectFmt("Dec", "{f}", .{MonthOfYear.December.fmt(.short)});
+        try std.testing.expectFmt("12", "{f}", .{MonthOfYear.December.fmt(.number)});
     }
 };
 
@@ -1159,7 +1128,15 @@ pub const Week = enum(i45) {
     }
 
     pub fn format(value: @This(), writer: *Writer) !void {
-        try writer.print("{d:0>2}", .{value.to()});
+        try writer.print("{d}", .{value.to()});
+    }
+
+    test "Week format" {
+        try std.testing.expectFmt("1", "{f}", .{Week.from(1)});
+        try std.testing.expectFmt("0", "{f}", .{Week.from(0)});
+        try std.testing.expectFmt("-1", "{f}", .{Week.from(-1)});
+        try std.testing.expectFmt("15250284452423", "{f}", .{Week.max});
+        try std.testing.expectFmt("-15250284452423", "{f}", .{Week.min});
     }
 };
 
@@ -1203,13 +1180,13 @@ pub const WeekOfYear = enum(u6) {
     }
 
     fn to0Unckecked(week: WeekOfYear) u6 {
-        return @intFromEnum(week) - 1;
+        return week.toUnckecked() - 1;
     }
 
     pub fn to(week: WeekOfYear, year: Year) u6 {
         assert(week.isValid(year));
 
-        return to0Unckecked(week);
+        return to0Unckecked(week) + 1;
     }
 
     fn toUnckecked(week: WeekOfYear) u6 {
@@ -1217,6 +1194,8 @@ pub const WeekOfYear = enum(u6) {
     }
 
     pub fn isValid(week: WeekOfYear, year: Year) bool {
+        if (week == .invalid) return false;
+
         // We have 3 cases:
         // 1) the week is 1 <= week <= year.weeksInYear()
         // 2) we're in the last week of the previous year, AND
@@ -1238,13 +1217,19 @@ pub const WeekOfYear = enum(u6) {
         return week_num == prev_year.weeksInYear() and year.firstDay().isAfter(.Thursday);
     }
 
-    pub fn fmt(week: WeekOfYear, year: Year) std.fmt.Alt(FormatData, WeekOfYear.fromat) {
+    pub fn fmt(week: WeekOfYear, year: Year) std.fmt.Alt(FormatData, WeekOfYear.format) {
         return .{ .data = .{ .week = week, .year = year } };
     }
 
     const FormatData = struct { week: WeekOfYear, year: Year };
-    fn format(value: FormatData, writer: *Writer) !void {
-        try writer.print("{d:0>2}", .{value.to()});
+    fn format(data: FormatData, writer: *Writer) !void {
+        try writer.print("{d:0>2}", .{data.week.to(data.year)});
+    }
+
+    test "WeekOfYear format" {
+        try std.testing.expectFmt("01", "{f}", .{WeekOfYear.from(1, .from(2022)).fmt(.from(2022))});
+        try std.testing.expectFmt("52", "{f}", .{WeekOfYear.from(52, .from(2022)).fmt(.from(2022))});
+        try std.testing.expectFmt("53", "{f}", .{WeekOfYear.from(53, .from(2021)).fmt(.from(2021))});
     }
 };
 
@@ -1297,6 +1282,18 @@ pub const Day = enum(i48) {
         return day.toUnchecked() <= max.toUnchecked() and
             day.toUnchecked() >= min.toUnchecked();
     }
+
+    pub fn format(day: @This(), writer: *Writer) !void {
+        try writer.print("{d}", .{day.to()});
+    }
+
+    test "Day format" {
+        try std.testing.expectFmt("0", "{f}", .{Day.from(0)});
+        try std.testing.expectFmt("1", "{f}", .{Day.from(1)});
+        try std.testing.expectFmt("-1", "{f}", .{Day.from(-1)});
+        try std.testing.expectFmt("106751991166961", "{f}", .{Day.max});
+        try std.testing.expectFmt("-106751991166961", "{f}", .{Day.min});
+    }
 };
 
 // One based representation of the day in a given year
@@ -1340,7 +1337,7 @@ pub const DayOfYear = enum(u9) {
     }
 
     pub fn to0(day_of_year: DayOfYear) u9 {
-        return @intFromEnum(day_of_year) - 1;
+        return day_of_year.to() - 1;
     }
 
     pub fn to(day_of_year: DayOfYear) u9 {
@@ -1355,7 +1352,13 @@ pub const DayOfYear = enum(u9) {
     }
 
     pub fn format(doy: @This(), writer: *Writer) !void {
-        try writer.print("{d:0>2}", .{@intFromEnum(doy)});
+        try writer.print("{d}", .{doy.to()});
+    }
+
+    test "DayOfYear format" {
+        try std.testing.expectFmt("1", "{f}", .{DayOfYear.from(1, false)});
+        try std.testing.expectFmt("365", "{f}", .{DayOfYear.from(365, false)});
+        try std.testing.expectFmt("366", "{f}", .{DayOfYear.from(366, true)});
     }
 };
 
@@ -1409,6 +1412,13 @@ pub const DayOfMonth = enum(u5) {
     fn format(data: FormatData, writer: *Writer) !void {
         try writer.print("{d:0>2}", .{data.dom.toRegularDay(data.moy, data.is_leapyear)});
     }
+
+    test "DayOfMonth format" {
+        try std.testing.expectFmt("01", "{f}", .{DayOfMonth.from(1, .January, false).fmt(.January, false)});
+        try std.testing.expectFmt("31", "{f}", .{DayOfMonth.from(31, .January, false).fmt(.January, false)});
+        try std.testing.expectFmt("28", "{f}", .{DayOfMonth.from(28, .February, false).fmt(.February, false)});
+        try std.testing.expectFmt("29", "{f}", .{DayOfMonth.from(29, .February, true).fmt(.February, true)});
+    }
 };
 
 // FIXME: Reduce the usage of @intFromEnum
@@ -1455,8 +1465,12 @@ pub const DayOfWeek = enum(u3) {
         return @enumFromInt(day + 1);
     }
 
-    pub fn toOrdinal(day: DayOfWeek) u3 {
-        return @intFromEnum(day) - 1;
+    pub fn to(dow: DayOfWeek) u3 {
+        return @intFromEnum(dow);
+    }
+
+    pub fn toOrdinal(dow: DayOfWeek) u3 {
+        return dow.to() - 1;
     }
 
     // FIXME: Make this work with negatives too
@@ -1502,6 +1516,30 @@ pub const DayOfWeek = enum(u3) {
     pub fn isAfter(day: DayOfWeek, reference: DayOfWeek) bool {
         return @intFromEnum(reference) < @intFromEnum(day);
     }
+
+    pub fn fmt(dow: DayOfWeek, fmt_type: FormatType) std.fmt.Alt(FormatData, DayOfWeek.format) {
+        return .{ .data = .{ .dow = dow, .type = fmt_type } };
+    }
+
+    const FormatType = enum { name, short, number };
+    const FormatData = struct { dow: DayOfWeek, type: FormatType };
+    fn format(data: FormatData, writer: *Writer) !void {
+        switch (data.type) {
+            .name => try writer.print("{t}", .{data.dow}),
+            .short => try writer.print("{s}", .{@tagName(data.dow)[0..3]}),
+            .number => try writer.print("{d}", .{data.dow.to()}),
+        }
+    }
+
+    test "DayOfWeek format" {
+        try std.testing.expectFmt("Monday", "{f}", .{DayOfWeek.Monday.fmt(.name)});
+        try std.testing.expectFmt("Mon", "{f}", .{DayOfWeek.Monday.fmt(.short)});
+        try std.testing.expectFmt("1", "{f}", .{DayOfWeek.Monday.fmt(.number)});
+
+        try std.testing.expectFmt("Sunday", "{f}", .{DayOfWeek.Sunday.fmt(.name)});
+        try std.testing.expectFmt("Sun", "{f}", .{DayOfWeek.Sunday.fmt(.short)});
+        try std.testing.expectFmt("7", "{f}", .{DayOfWeek.Sunday.fmt(.number)});
+    }
 };
 
 pub const Hour = enum(u5) {
@@ -1509,17 +1547,20 @@ pub const Hour = enum(u5) {
 
     pub const Error = error{UnrepresentableHour};
 
-    pub fn from(hour: u5) Hour {
-        assert(hour <= 24);
+    pub fn from(h: u5) Hour {
+        const hour = fromUnchecked(h);
+        assert(hour.isValid());
 
-        return fromUnchecked(hour);
+        return hour;
     }
 
-    pub fn fromChecked(hour: u5) Error!Hour {
-        if (hour > 24)
+    pub fn fromChecked(h: u5) Error!Hour {
+        const hour = fromUnchecked(h);
+
+        if (!hour.isValid())
             return Error.UnrepresentableHour;
 
-        return fromUnchecked(hour);
+        return hour;
     }
 
     fn fromUnchecked(hour: u5) Hour {
@@ -1542,6 +1583,11 @@ pub const Hour = enum(u5) {
     pub fn format(value: @This(), writer: *Writer) !void {
         try writer.print("{d:0>2}", .{value.to()});
     }
+
+    test "Hour format" {
+        try std.testing.expectFmt("00", "{f}", .{Hour.from(0)});
+        try std.testing.expectFmt("23", "{f}", .{Hour.from(23)});
+    }
 };
 
 pub const Minute = enum(u6) {
@@ -1550,15 +1596,23 @@ pub const Minute = enum(u6) {
     pub const Error = error{UnrepresentableMinute};
 
     pub fn fromChecked(minute: u6) Error!Minute {
-        if (minute >= 60)
+        const min: Minute = .fromUnchecked(minute);
+        assert(min.isValid());
+
+        if (!min.isValid())
             return Error.UnrepresentableMinute;
 
-        return from(minute);
+        return min;
     }
 
     pub fn from(minute: u6) Minute {
-        assert(minute < 60);
+        const min: Minute = .fromUnchecked(minute);
+        assert(min.isValid());
 
+        return min;
+    }
+
+    fn fromUnchecked(minute: u6) Minute {
         return @enumFromInt(minute);
     }
 
@@ -1578,6 +1632,11 @@ pub const Minute = enum(u6) {
     pub fn format(value: @This(), writer: *Writer) !void {
         try writer.print("{d:0>2}", .{value.to()});
     }
+
+    test "Minute format" {
+        try std.testing.expectFmt("00", "{f}", .{Minute.from(0)});
+        try std.testing.expectFmt("59", "{f}", .{Minute.from(59)});
+    }
 };
 
 pub const Second = enum(u6) {
@@ -1586,16 +1645,20 @@ pub const Second = enum(u6) {
     pub const Error = error{UnrepresentableSecond};
 
     pub fn fromChecked(second: u6) Error!Second {
-        // TODO: Leap seconds can get to 60, do we handle that here?
-        //  - I say we handle that when formatting leap seconds
-        if (second >= 60)
-            return Error.UnrepresentableSecond;
+        const sec: Second = .fromUnchecked(second);
+        if (!sec.isValid())
+            return error.UnrepresentableSecond;
 
-        return from(second);
+        return sec;
     }
 
     pub fn from(second: u6) Second {
-        assert(second < 60);
+        const sec: Second = .fromUnchecked(second);
+        assert(sec.isValid());
+        return sec;
+    }
+
+    fn fromUnchecked(second: u6) Second {
         return @enumFromInt(second);
     }
 
@@ -1609,11 +1672,18 @@ pub const Second = enum(u6) {
     }
 
     pub fn isValid(second: Second) bool {
+        // TODO: Leap seconds can get to 60, do we handle that here?
+        //  - I say we handle that when formatting leap seconds
         return second.toUnchecked() < 60;
     }
 
     pub fn format(value: @This(), writer: *Writer) Writer.Error!void {
         try writer.print("{d:0>2}", .{value.to()});
+    }
+
+    test "Second format" {
+        try std.testing.expectFmt("00", "{f}", .{Second.from(0)});
+        try std.testing.expectFmt("59", "{f}", .{Second.from(59)});
     }
 };
 
@@ -2431,15 +2501,59 @@ pub fn format(date: @This(), writer: *Writer) Writer.Error!void {
 }
 
 test format {
-    @disableInstrumentation();
-
     try std.testing.expectFmt("0000-01-01T00:00:00", "{f}", .{gregorianEpoch});
+    try std.testing.expectFmt("1970-01-01T00:00:00", "{f}", .{unixEpoch});
     try std.testing.expectFmt("-292277024626-01-01T00:00:00", "{f}", .{date_min});
     try std.testing.expectFmt("292277024625-12-31T23:59:59", "{f}", .{date_max});
 }
 
 pub fn order(a: DateTime, b: DateTime) Order {
     std.math.order(a.timestamp, b.timestamp);
+}
+
+fn formatIntCustom(w: *Writer, value: anytype) Writer.Error!void {
+    // Effectively a copy of std.fmt.formatInt, but I wanted a little
+    // bit of custom logic with the sign so we ball
+
+    const value_info = @typeInfo(@TypeOf(value)).int;
+
+    // The type must have the same size as `base` or be wider in order for the
+    // division to work
+    const min_int_bits = comptime @max(value_info.bits, 8);
+    const MinInt = std.meta.Int(.unsigned, min_int_bits);
+
+    const abs_value = @abs(value);
+    // The worst case in terms of space needed is base 2, plus 1 for the sign
+    var buf: [1 + @max(@as(comptime_int, value_info.bits), 1)]u8 = undefined;
+
+    var a: MinInt = abs_value;
+    var index: usize = buf.len;
+
+    while (a >= 100) : (a = @divTrunc(a, 100)) {
+        index -= 2;
+        buf[index..][0..2].* = std.fmt.digits2(@intCast(a % 100));
+    }
+
+    if (a < 10) {
+        index -= 1;
+        buf[index] = '0' + @as(u8, @intCast(a));
+    } else {
+        index -= 2;
+        buf[index..][0..2].* = std.fmt.digits2(@intCast(a));
+    }
+
+    while (index > buf.len - 4) {
+        index -= 1;
+        buf[index] = '0';
+    }
+
+    if (value < 0) {
+        // Negative integer
+        index -= 1;
+        buf[index] = '-';
+    }
+
+    try w.writeAll(buf[index..]);
 }
 
 const DateTime = @This();
